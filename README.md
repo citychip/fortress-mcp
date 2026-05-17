@@ -1,7 +1,7 @@
 # Fortress Dashboard MCP Server
 
 Connects Claude Desktop to your Fortress Dashboard via the MCP stdio transport.
-19 read-only Tier 1 tools + 9 write Tier 2 tools (env-gated).
+31 read-only Tier 1 tools + 9 write Tier 2 tools (env-gated). 40 tools total.
 
 ---
 
@@ -47,7 +47,7 @@ Add the following to the `mcpServers` section (merge with existing content):
       "command": "python3",
       "args": ["/Users/yourname/fortress_mcp/fortress_mcp.py"],
       "env": {
-        "FORTRESS_API_URL": "http://76.13.138.194:8080",
+        "FORTRESS_API_URL": "http://76.13.138.194:3000",
         "FORTRESS_API_TOKEN": "07f03fb6e664859ac5e8113eaf1102ac43a3cb785c581af756671072b426db21"
       }
     }
@@ -69,7 +69,7 @@ Write tools are disabled by default. To enable them, add `FORTRESS_MCP_ALLOW_WRI
 
 ```json
 "env": {
-  "FORTRESS_API_URL": "http://76.13.138.194:8080",
+  "FORTRESS_API_URL": "http://76.13.138.194:3000",
   "FORTRESS_API_TOKEN": "07f03fb6e664859ac5e8113eaf1102ac43a3cb785c581af756671072b426db21",
   "FORTRESS_MCP_ALLOW_WRITES": "1"
 }
@@ -81,7 +81,7 @@ Write tools included: `add_journal_entry`, `add_alert`, `update_alert`, `delete_
 
 ---
 
-## Tier 1 Tools (19 — always available)
+## Tier 1 Tools (31 — always available)
 
 | Tool | What it does |
 |---|---|
@@ -101,9 +101,20 @@ Write tools included: `add_journal_entry`, `add_alert`, `update_alert`, `delete_
 | `get_spy_hedge_coverage()` | SPY hedge coverage check §2.D |
 | `pretrade_check(ticker, strategy)` | Full pre-trade gate §3.3 → §4 → §7 |
 | `get_capability(refresh)` | Greeks backend health probe |
-| `get_ibkr_status()` | Legacy TWS gateway status |
+| `get_ibkr_status()` | IBKR connection status |
 | `get_settings()` | All runtime configuration |
 | `get_quantdata_reports(report, date)` | QuantData report retrieval |
+| `get_market_intelligence()` | Market regime + macro overlay |
+| `get_pending_orders(status)` | Order approval queue |
+| `options_greeks(spot, strike, dte, iv, right)` | Black-Scholes Greeks (live or fallback) |
+| `preview_order(order_id)` | IBKR whatif margin preview |
+| `qd_get_dark_pool_levels(ticker)` | QuantData dark pool levels |
+| `qd_get_iv_rank(ticker)` | IV rank / IV percentile |
+| `qd_get_max_pain(ticker)` | Options max pain level |
+| `qd_get_net_drift(ticker)` | Cumulative options premium flow |
+| `qd_get_oi_change(ticker)` | Open interest change by strike |
+| `qd_get_order_flow(ticker)` | Unusual options order flow |
+| `get_spy_hedge_coverage()` | SPY hedge coverage ratio |
 
 ---
 
@@ -123,6 +134,6 @@ Write tools included: `add_journal_entry`, `add_alert`, `update_alert`, `delete_
 ## Security Notes
 
 - The token grants full read access to your portfolio data. Keep it private.
-- The VPS port 8080 should be firewalled to your IP only (UFW rule recommended).
+- FastAPI runs on `127.0.0.1:8080` (localhost only). nginx on port 3000 is the public endpoint.
 - Write tools are off by default. Enable only when needed and disable when done.
 - The MCP server never executes trades.
