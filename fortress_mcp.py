@@ -941,6 +941,132 @@ def get_forward_pnl(
     )
     return _get(f"/api/options/forward-pnl{params}")
 
+# ---------------------------------------------------------------------------
+# Read tools added in MCP audit — batch 2 (11 tools)
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def get_order_flow_chart(ticker: str) -> dict:
+    """
+    Per-ticker options order flow overlay data for the chart view.
+    Returns buy/sell pressure by strike, net delta flow, and unusual activity
+    flags. Use alongside get_chart_data to add order flow context to price.
+
+    Args:
+        ticker: Ticker symbol, e.g. "AAPL"
+    """
+    return _get(f"/api/chart/{ticker}/order_flow")
+
+@mcp.tool()
+def get_pretrade_all() -> dict:
+    """
+    Run the pre-trade gate check across every ticker in the universe at once.
+    Returns a pass/fail verdict per ticker with the blocking reason if failed.
+    Use this for a morning scan to identify which tickers are actionable today.
+    """
+    return _get("/api/manage/pretrade_all")
+
+@mcp.tool()
+def get_stop_loss_all() -> dict:
+    """
+    Evaluate stop-loss signals for every open position at once.
+    Returns hold / close / reduce verdict per position with signal breakdown
+    (delta breach, SMA breach, drawdown, fundamental break).
+    More efficient than calling evaluate_stop_loss() per ticker individually.
+    """
+    return _get("/api/manage/stop_loss_all")
+
+@mcp.tool()
+def get_roll_all() -> dict:
+    """
+    Evaluate roll candidates for every open position at once.
+    Returns roll recommendation, urgency, and suggested new strikes/expiry
+    for each position. Use for a quick end-of-day roll scan.
+    """
+    return _get("/api/manage/roll_all")
+
+@mcp.tool()
+def get_journal_suggestion() -> dict:
+    """
+    Get an AI-generated journal entry suggestion based on today's positions,
+    market conditions, and recent trades. Returns a draft journal entry
+    with trade rationale, risk notes, and lessons learned.
+    """
+    return _get("/api/journal/suggest")
+
+@mcp.tool()
+def get_earnings_history(ticker: str) -> dict:
+    """
+    Retrieve historical earnings dates for a ticker from yfinance.
+    Returns a list of past earnings dates with EPS actual vs estimate
+    where available. Useful for understanding earnings cadence and
+    typical post-earnings price behaviour.
+
+    Args:
+        ticker: Ticker symbol, e.g. "MSFT"
+    """
+    return _get(f"/api/calendar/{ticker}/history")
+
+@mcp.tool()
+def get_settings_narrative() -> dict:
+    """
+    Get an AI-generated plain-English summary of the current strategy
+    settings — trader persona, active strategies, risk parameters, and
+    signal mode. Useful for quickly understanding the current configuration
+    without reading raw JSON settings.
+    """
+    return _get("/api/settings/narrative")
+
+@mcp.tool()
+def get_hydrated_assets() -> dict:
+    """
+    View the in-memory hydration cache — values pushed to the dashboard
+    by VPS automation scripts (dark pool floors, whale flow, IV crush data).
+    Returns all cached asset keys with their values and timestamps.
+    """
+    return _get("/api/manage/hydrated-assets")
+
+@mcp.tool()
+def get_ibkr_preview() -> dict:
+    """
+    Get a preview of the current IBKR connection state including account
+    summary, available margin, and connection health. Does not place any
+    orders — read-only whatif/preview endpoint.
+    """
+    return _get("/api/ibkr/preview")
+
+@mcp.tool()
+def list_scripts() -> dict:
+    """
+    List all available automation scripts on the Fortress VPS with their
+    keys, display names, descriptions, and last-run timestamps.
+    Use before calling run_script() to discover available script keys.
+    """
+    return _get("/api/run/scripts")
+
+@mcp.tool()
+def run_script(script_key: str) -> dict:
+    """
+    [WRITE — requires FORTRESS_MCP_ALLOW_WRITES=1]
+    Execute a named automation script on the Fortress VPS.
+    Call list_scripts() first to discover valid script keys.
+    Returns stdout, stderr, exit code, and duration.
+
+    Args:
+        script_key: Script identifier from list_scripts(), e.g. "morning_brief"
+    """
+    _writes_check()
+    return _post(f"/api/run/{script_key}")
+
+@mcp.tool()
+def get_time_of_day() -> dict:
+    """
+    Get the current market session context — pre-market, open, after-hours,
+    or closed — along with the current time, next open/close times, and
+    whether today is a trading day. Useful for time-sensitive decisions.
+    """
+    return _get("/api/run/time_of_day")
+
 if __name__ == "__main__":
     if not API_TOKEN:
         import sys
