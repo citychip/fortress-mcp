@@ -2,7 +2,7 @@
 
 > Connects Claude Desktop to your Fortress Dashboard via the MCP stdio transport, giving Claude direct access to your live options portfolio, market intelligence, and trading workflow tools.
 
-**40 tools in two tiers** — 31 read-only tools always available, 9 write tools enabled via environment variable.
+**41 tools in two tiers** — 32 read-only tools always available, 9 write tools enabled via environment variable.
 
 ---
 
@@ -109,6 +109,7 @@ Enable write tools only when you intend to use them, and remove the flag when do
 | `qd_get_order_flow(ticker)` | Unusual options order flow |
 | `get_pnl()` | P&L summary (realized + unrealized) |
 | `get_playbook()` | Active strategy playbook and persona configuration |
+| `get_pnl()` | P&L summary — unrealised P&L per position and portfolio totals |
 
 ## Tier 2 Tools — Write (9 tools, require `FORTRESS_MCP_ALLOW_WRITES=1`)
 
@@ -144,7 +145,7 @@ The following prompts work well as starting points for a Claude Desktop session 
 
 ## Security Notes
 
-The bearer token grants full read access to your live portfolio data. Keep it private and do not commit it to version control. The Fortress API runs on `127.0.0.1:8080` (localhost only); nginx on port 3000 is the public endpoint. Write tools are off by default — enable only when needed and remove the flag when done. The MCP server never executes trades directly; it only reads data and writes to the dashboard's internal state.
+The bearer token grants full read access to your live portfolio data. Keep it private and do not commit it to version control. The Fortress API runs on `127.0.0.1:8080` internally; nginx on port 3000 is the public endpoint. The MCP server connects to port 3000 by default. Write tools are off by default — enable only when needed and remove the flag when done. The MCP server never executes trades directly; it only reads data and writes to the dashboard's internal state.
 
 ---
 
