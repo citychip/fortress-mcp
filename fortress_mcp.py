@@ -899,6 +899,106 @@ def get_pnl() -> dict:
     return _get("/api/pnl")
 
 
+
+# ---------------------------------------------------------------------------
+# High-priority tools added in Sprint v5.0 audit
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def get_trade_report() -> dict:
+    """
+    Retrieve the full structured trade report from the Fortress backend.
+    More detailed than get_briefing — includes per-ticker candidate rows with
+    IV rank, GEX zone, bias badge, action recommendations, concentration
+    warnings, stop-loss flags, and post-earnings candidates.
+    Use this when you need the complete actionable trade picture for the day.
+    """
+    return _get("/api/manage/trade_report")
+
+
+@mcp.tool()
+def get_chart_data(ticker: str, period: str = "6mo", interval: str = "1d") -> dict:
+    """
+    Retrieve OHLCV price data plus technical indicators for a ticker.
+    Returns candlestick data, 50/200 SMA, RSI(14), MACD(12,26,9),
+    Bollinger Bands(20,2), and key GEX/strike overlay levels.
+
+    Args:
+        ticker:   Ticker symbol, e.g. "MSFT"
+        period:   Lookback period — "1mo", "3mo", "6mo", "1y", "2y" (default "6mo")
+        interval: Bar interval — "1d", "1wk" (default "1d")
+    """
+    params = f"?period={period}&interval={interval}"
+    chart   = _get(f"/api/chart/{ticker}{params}")
+    levels  = _get(f"/api/chart/{ticker}/levels")
+    return {"chart": chart, "levels": levels}
+
+
+@mcp.tool()
+def get_vol_analytics(ticker: str) -> dict:
+    """
+    Retrieve volatility analytics for a ticker using live options chain data.
+    Returns three datasets:
+      - iv_skew: IV vs moneyness (%) for calls and puts at the nearest expiry
+      - term_structure: ATM IV across all available expiries (DTE vs IV%)
+      - atm_ladder: per-expiry table of DTE, call IV, put IV, avg IV, and spread
+
+    Use this to assess IV skew shape, term structure steepness, and whether
+    front-month IV is elevated vs back-month (earnings premium, event risk).
+
+    Args:
+        ticker: Ticker symbol, e.g. "AAPL"
+    """
+    return _get(f"/api/options/vol-analytics?ticker={ticker}")
+
+
+@mcp.tool()
+def get_position_limits(ticker: str) -> dict:
+    """
+    Compute max profit, max loss, and breakeven prices for all open positions
+    in a ticker using Black-Scholes (py_vollib).
+    Returns: max_profit, max_loss, net_premium, breakevens[], spot, legs[].
+    Useful for quickly understanding the structural risk profile of a position.
+
+    Args:
+        ticker: Ticker symbol matching an open position, e.g. "MSFT"
+    """
+    return _get(f"/api/options/position-limits?ticker={ticker}")
+
+
+@mcp.tool()
+def get_forward_pnl(
+    ticker: str,
+    target_price: float,
+    target_date: str,
+    iv_multiplier: float = 1.0,
+) -> dict:
+    """
+    Simulate the forward P&L of all open positions in a ticker at a given
+    target price and date, using Black-Scholes (py_vollib).
+
+    Returns:
+      - point_estimate: P&L in dollars if spot reaches target_price by target_date
+      - curve: list of {price, pnl} points across ±30% of current spot
+      - breakevens: list of breakeven prices
+      - max_profit, max_loss: structural limits at expiry
+
+    Args:
+        ticker:        Ticker symbol matching an open position, e.g. "MSFT"
+        target_price:  Hypothetical future spot price, e.g. 450.0
+        target_date:   ISO date string for the target date, e.g. "2025-07-01"
+        iv_multiplier: IV adjustment factor (default 1.0 = current IV;
+                       0.6 = 40% IV crush for post-earnings scenarios)
+    """
+    params = (
+        f"?ticker={ticker}"
+        f"&target_price={target_price}"
+        f"&target_date={target_date}"
+        f"&iv_multiplier={iv_multiplier}"
+    )
+    return _get(f"/api/options/forward-pnl{params}")
+
+
 if __name__ == "__main__":
     if not API_TOKEN:
         import sys
