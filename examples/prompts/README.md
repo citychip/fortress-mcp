@@ -3,6 +3,8 @@
 Ready-to-paste prompts for Claude Desktop with the Fortress MCP connected.
 Each prompt is self-contained — paste it directly into a new Claude conversation.
 
+**Updated:** Sprint v7.1 (May 18, 2026) — Strategy v3.7
+
 ---
 
 ## Morning Workflow
@@ -196,4 +198,35 @@ Show me all available Fortress automation scripts:
 
 For each script, explain when it should be run and what it does. Group them
 by: morning scripts, intraday scripts, end-of-day scripts, and maintenance scripts.
+```
+
+---
+
+## QuantData Diagnostics
+
+### QuantData Health Check
+```
+Check the health of my QuantData integration:
+1. Call get_settings to see if use_quantdata is enabled
+2. Call qd_get_iv_rank with ticker=SPY to test live connectivity
+3. Call get_market_intelligence to see if GEX/DP data is populating
+
+If qd_get_iv_rank returns an error or empty data, my QuantData session
+credentials have likely expired. Remind me to go to Settings → QuantData
+Credentials in the dashboard and refresh my auth_token and cookie values
+from a fresh QuantData login session.
+```
+
+### Market Intelligence Deep Dive
+```
+Run a full market intelligence analysis for [TICKER]:
+1. Call get_market_intelligence with the ticker to get GEX walls, DP floors,
+   net drift, order flow, and regime score
+2. Call qd_get_dark_pool_levels for the raw DP level data
+3. Call qd_get_net_drift for the cumulative premium flow
+4. Call get_chart_data to see the price in context of these levels
+
+Explain: (a) where the key support/resistance levels are based on GEX and DP,
+(b) what the net drift and order flow suggest about directional bias,
+(c) whether the current regime score supports entering a new position.
 ```
