@@ -2,7 +2,7 @@
 
 > Connects Claude Desktop to your Fortress Dashboard via the MCP stdio transport, giving Claude direct access to your live options portfolio, market intelligence, and trading workflow tools.
 
-**41 tools in two tiers** — 32 read-only tools always available, 9 write tools enabled via environment variable.
+**46 tools in two tiers** — 37 read-only tools always available, 9 write tools enabled via environment variable.
 
 ---
 
@@ -110,6 +110,11 @@ Enable write tools only when you intend to use them, and remove the flag when do
 | `get_pnl()` | P&L summary (realized + unrealized) |
 | `get_playbook()` | Active strategy playbook and persona configuration |
 | `get_pnl()` | P&L summary — unrealised P&L per position and portfolio totals |
+| `get_trade_report()` | Full structured trade report — candidates, actions, concentration warnings, stop-loss flags |
+| `get_chart_data(ticker, period, interval)` | OHLCV + technicals (SMA/RSI/MACD/BB) + GEX strike levels for a ticker |
+| `get_vol_analytics(ticker)` | IV skew curve, term structure, and ATM IV ladder from live options chain |
+| `get_position_limits(ticker)` | Max profit, max loss, net premium, and breakeven prices for open positions |
+| `get_forward_pnl(ticker, target_price, target_date, iv_multiplier)` | BS-model P&L simulation at a target price/date with optional IV crush |
 
 ## Tier 2 Tools — Write (9 tools, require `FORTRESS_MCP_ALLOW_WRITES=1`)
 
