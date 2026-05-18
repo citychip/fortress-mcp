@@ -172,7 +172,6 @@ def get_briefing() -> dict:
     """
     return _get("/api/briefing")
 
-
 @mcp.tool()
 def get_positions(aggregated: bool = True) -> dict:
     """
@@ -184,7 +183,6 @@ def get_positions(aggregated: bool = True) -> dict:
         return _get("/api/manage/positions")
     return _get("/api/positions")
 
-
 @mcp.tool()
 def get_candidates() -> dict:
     """
@@ -193,7 +191,6 @@ def get_candidates() -> dict:
     flags, and a tradeable signal. Use before any new trade decision.
     """
     return _get("/api/candidates")
-
 
 @mcp.tool()
 def get_calendar(window_days: int = 14) -> dict:
@@ -204,7 +201,6 @@ def get_calendar(window_days: int = 14) -> dict:
     """
     return _get("/api/calendar", params={"window_days": window_days})
 
-
 @mcp.tool()
 def get_universe() -> dict:
     """
@@ -212,7 +208,6 @@ def get_universe() -> dict:
     macro (SPX/SPY/VIX), and excluded tickers with exclusion reasons.
     """
     return _get("/api/universe")
-
 
 @mcp.tool()
 def get_journal(limit: int = 30) -> dict:
@@ -223,7 +218,6 @@ def get_journal(limit: int = 30) -> dict:
     """
     return _get("/api/journal", params={"limit": limit})
 
-
 @mcp.tool()
 def get_alerts() -> dict:
     """
@@ -231,7 +225,6 @@ def get_alerts() -> dict:
     trigger type (delta/price/pnl), trigger value, direction, and action.
     """
     return _get("/api/alerts")
-
 
 @mcp.tool()
 def get_dp_floors_and_gex(ticker: str) -> dict:
@@ -241,8 +234,6 @@ def get_dp_floors_and_gex(ticker: str) -> dict:
     ticker: uppercase ticker symbol, e.g. 'AAPL', 'SPY'
     """
     return _get(f"/api/chart/{ticker}/levels")
-
-
 
 @mcp.tool()
 def get_market_intelligence(ticker: str = "SPY") -> dict:
@@ -254,17 +245,6 @@ def get_market_intelligence(ticker: str = "SPY") -> dict:
     ticker: uppercase ticker symbol, e.g. 'SPY', 'QQQ', 'AAPL'. Defaults to 'SPY'.
     """
     return _get(f"/api/market-intelligence", params={"ticker": ticker})
-
-
-@mcp.tool()
-def get_chart_data(ticker: str, period: str = "3mo") -> dict:
-    """
-    OHLCV price candles plus overlay levels (DP floors, GEX walls, moving
-    averages) for a ticker. period: '1mo', '3mo', '6mo', '1y'.
-    ticker: uppercase ticker symbol, e.g. 'AAPL'
-    """
-    return _get(f"/api/chart/{ticker}", params={"period": period})
-
 
 @mcp.tool()
 def evaluate_stop_loss(
@@ -283,7 +263,6 @@ def evaluate_stop_loss(
     if peak_mv is not None:
         params["peak_mv"] = peak_mv
     return _get(f"/api/manage/stop_loss/{ticker}", params=params)
-
 
 @mcp.tool()
 def evaluate_roll(
@@ -310,7 +289,6 @@ def evaluate_roll(
         },
     )
 
-
 @mcp.tool()
 def evaluate_post_earnings(
     ticker: str,
@@ -330,7 +308,6 @@ def evaluate_post_earnings(
     if thesis:
         body["thesis"] = thesis
     return _post("/api/playbook/post_earnings", body=body)
-
 
 @mcp.tool()
 def validate_jade_lizard(
@@ -357,7 +334,6 @@ def validate_jade_lizard(
         },
     )
 
-
 @mcp.tool()
 def get_spy_hedge_coverage() -> dict:
     """
@@ -365,7 +341,6 @@ def get_spy_hedge_coverage() -> dict:
     Returns: current hedge notional, required coverage, gap, and verdict.
     """
     return _get("/api/manage/spy_hedge_coverage")
-
 
 @mcp.tool()
 def pretrade_check(ticker: str, strategy: str) -> dict:
@@ -379,7 +354,6 @@ def pretrade_check(ticker: str, strategy: str) -> dict:
     """
     return _get("/api/ibkr/preview", params={"ticker": ticker, "strategy": strategy})
 
-
 @mcp.tool()
 def get_capability(refresh: bool = False) -> dict:
     """
@@ -390,7 +364,6 @@ def get_capability(refresh: bool = False) -> dict:
     """
     return _get("/api/ibkr/capability", params={"refresh": str(refresh).lower()})
 
-
 @mcp.tool()
 def get_ibkr_status() -> dict:
     """
@@ -398,7 +371,6 @@ def get_ibkr_status() -> dict:
     For current Greeks backend health, prefer get_capability().
     """
     return _get("/api/ibkr/status")
-
 
 @mcp.tool()
 def get_settings() -> dict:
@@ -410,7 +382,6 @@ def get_settings() -> dict:
     """
     return _get("/api/settings")
 
-
 @mcp.tool()
 def get_quantdata_reports(report: str = "daily", date: str = "latest") -> dict:
     """
@@ -420,7 +391,6 @@ def get_quantdata_reports(report: str = "daily", date: str = "latest") -> dict:
     Returns the full report text and metadata.
     """
     return _get("/api/uploads", params={"report": report, "date": date})
-
 
 # ─── Tier 2 — Write tools (env-gated, 9 tools) ───────────────────────────────
 
@@ -459,7 +429,6 @@ def add_journal_entry(
         body["tags"] = tags
     return _post("/api/journal", body=body)
 
-
 @mcp.tool()
 def add_alert(
     position_id: str,
@@ -486,7 +455,6 @@ def add_alert(
         "action": action,
     })
 
-
 @mcp.tool()
 def update_alert(
     alert_id: str,
@@ -509,7 +477,6 @@ def update_alert(
         body["active"] = active
     return _patch(f"/api/alerts/{alert_id}", body=body)
 
-
 @mcp.tool()
 def delete_alert(alert_id: str) -> dict:
     """
@@ -519,7 +486,6 @@ def delete_alert(alert_id: str) -> dict:
     """
     _writes_check()
     return _delete(f"/api/alerts/{alert_id}")
-
 
 @mcp.tool()
 def update_calendar(
@@ -541,7 +507,6 @@ def update_calendar(
         "confirmed": confirmed,
     })
 
-
 @mcp.tool()
 def add_excluded_ticker(ticker: str, reason: str) -> dict:
     """
@@ -552,7 +517,6 @@ def add_excluded_ticker(ticker: str, reason: str) -> dict:
     """
     _writes_check()
     return _post("/api/universe/exclude", body={"ticker": ticker, "reason": reason})
-
 
 @mcp.tool()
 def add_universe_ticker(tier: str, ticker: str) -> dict:
@@ -566,7 +530,6 @@ def add_universe_ticker(tier: str, ticker: str) -> dict:
     _writes_check()
     return _post("/api/universe/add", body={"tier": tier, "ticker": ticker})
 
-
 @mcp.tool()
 def update_settings_section(section: str, values: dict) -> dict:
     """
@@ -578,7 +541,6 @@ def update_settings_section(section: str, values: dict) -> dict:
     """
     _writes_check()
     return _put(f"/api/settings/{section}", body={"values": values})
-
 
 @mcp.tool()
 def trigger_ibkr_sync(backend: Optional[str] = None) -> dict:
@@ -593,7 +555,6 @@ def trigger_ibkr_sync(backend: Optional[str] = None) -> dict:
     if backend:
         body["backend"] = backend
     return _post("/api/ibkr/sync", body=body)
-
 
 # ─── Tier 1b — QuantData live tools (6, read-only, requires QD credentials) ──
 
@@ -623,7 +584,6 @@ def qd_get_dark_pool_levels(ticker: str, session_date: str | None = None) -> dic
         if price:
             levels.append({"price": price, "notional_m": notional, "type": level_type})
     return {"ticker": ticker, "session_date": session_date, "dp_levels": levels, "source": "quantdata_live_api"}
-
 
 @mcp.tool()
 def qd_get_order_flow(
@@ -680,7 +640,6 @@ def qd_get_order_flow(
         })
     return {"ticker": ticker, "session_date": session_date, "flow": flow, "source": "quantdata_live_api"}
 
-
 @mcp.tool()
 def qd_get_net_drift(ticker: str, session_date: str | None = None) -> dict:
     """
@@ -713,7 +672,6 @@ def qd_get_net_drift(ticker: str, session_date: str | None = None) -> dict:
         "bias":          bias,
         "source":        "quantdata_live_api",
     }
-
 
 @mcp.tool()
 def qd_get_max_pain(ticker: str, session_date: str | None = None) -> dict:
@@ -755,7 +713,6 @@ def qd_get_max_pain(ticker: str, session_date: str | None = None) -> dict:
         "source":          "quantdata_live_api",
     }
 
-
 @mcp.tool()
 def qd_get_iv_rank(ticker: str, session_date: str | None = None) -> dict:
     """
@@ -787,7 +744,6 @@ def qd_get_iv_rank(ticker: str, session_date: str | None = None) -> dict:
         "put_iv":         response.get("putIv"),
         "source":         "quantdata_live_api",
     }
-
 
 @mcp.tool()
 def qd_get_oi_change(ticker: str, session_date: str | None = None) -> dict:
@@ -827,7 +783,6 @@ def qd_get_oi_change(ticker: str, session_date: str | None = None) -> dict:
         "source":               "quantdata_live_api",
     }
 
-
 # ─── Entry point ─────────────────────────────────────────────────────────────
 
 @mcp.tool()
@@ -839,7 +794,6 @@ def get_pending_orders(status=None):
     """
     params = {"status": status} if status else None
     return _get("/api/orders/pending", params=params)
-
 
 @mcp.tool()
 def options_greeks(spot: float, strike: float, dte: int, iv: float, right: str, qty=None):
@@ -855,7 +809,6 @@ def options_greeks(spot: float, strike: float, dte: int, iv: float, right: str, 
         body["qty"] = qty
     return _post("/api/options/greeks", body=body)
 
-
 @mcp.tool()
 def preview_order(order_id: str):
     """
@@ -865,7 +818,6 @@ def preview_order(order_id: str):
     """
     _writes_check()
     return _post(f"/api/orders/pending/{order_id}/preview")
-
 
 @mcp.tool()
 def approve_order(order_id: str):
@@ -877,7 +829,6 @@ def approve_order(order_id: str):
     _writes_check()
     return _post(f"/api/orders/pending/{order_id}/approve")
 
-
 @mcp.tool()
 def decline_order(order_id: str):
     """
@@ -887,8 +838,6 @@ def decline_order(order_id: str):
     _writes_check()
     return _delete(f"/api/orders/pending/{order_id}")
 
-
-
 @mcp.tool()
 def get_pnl() -> dict:
     """
@@ -897,8 +846,6 @@ def get_pnl() -> dict:
     total unrealised P&L, total market value, and per-ticker breakdown.
     """
     return _get("/api/pnl")
-
-
 
 # ---------------------------------------------------------------------------
 # High-priority tools added in Sprint v5.0 audit
@@ -914,7 +861,6 @@ def get_trade_report() -> dict:
     Use this when you need the complete actionable trade picture for the day.
     """
     return _get("/api/manage/trade_report")
-
 
 @mcp.tool()
 def get_chart_data(ticker: str, period: str = "6mo", interval: str = "1d") -> dict:
@@ -933,7 +879,6 @@ def get_chart_data(ticker: str, period: str = "6mo", interval: str = "1d") -> di
     levels  = _get(f"/api/chart/{ticker}/levels")
     return {"chart": chart, "levels": levels}
 
-
 @mcp.tool()
 def get_vol_analytics(ticker: str) -> dict:
     """
@@ -951,7 +896,6 @@ def get_vol_analytics(ticker: str) -> dict:
     """
     return _get(f"/api/options/vol-analytics?ticker={ticker}")
 
-
 @mcp.tool()
 def get_position_limits(ticker: str) -> dict:
     """
@@ -964,7 +908,6 @@ def get_position_limits(ticker: str) -> dict:
         ticker: Ticker symbol matching an open position, e.g. "MSFT"
     """
     return _get(f"/api/options/position-limits?ticker={ticker}")
-
 
 @mcp.tool()
 def get_forward_pnl(
@@ -997,7 +940,6 @@ def get_forward_pnl(
         f"&iv_multiplier={iv_multiplier}"
     )
     return _get(f"/api/options/forward-pnl{params}")
-
 
 if __name__ == "__main__":
     if not API_TOKEN:
