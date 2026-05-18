@@ -32,7 +32,7 @@ from mcp.server.fastmcp import FastMCP
 logger = logging.getLogger(__name__)
 
 # ─── Config ──────────────────────────────────────────────────────────────────
-API_URL   = os.environ.get("FORTRESS_API_URL", "http://76.13.138.194:3000").rstrip("/")
+API_URL   = os.environ.get("FORTRESS_API_URL", "http://localhost:3000").rstrip("/")
 API_TOKEN = os.environ.get("FORTRESS_API_TOKEN", "")
 ALLOW_WRITES = os.environ.get("FORTRESS_MCP_ALLOW_WRITES", "0") == "1"
 
@@ -886,6 +886,17 @@ def decline_order(order_id: str):
     """
     _writes_check()
     return _delete(f"/api/orders/pending/{order_id}")
+
+
+
+@mcp.tool()
+def get_pnl() -> dict:
+    """
+    Retrieve the current P&L summary from IBKR positions.
+    Returns unrealised P&L per position and portfolio totals including
+    total unrealised P&L, total market value, and per-ticker breakdown.
+    """
+    return _get("/api/pnl")
 
 
 if __name__ == "__main__":
