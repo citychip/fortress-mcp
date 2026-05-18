@@ -2,7 +2,7 @@
 
 > Connects Claude Desktop to your Fortress Dashboard via the MCP stdio transport, giving Claude direct access to your live options portfolio, market intelligence, and trading workflow tools.
 
-**46 tools in two tiers** — 37 read-only tools always available, 9 write tools enabled via environment variable.
+**57 tools in two tiers** — 47 read-only tools always available, 10 write tools enabled via environment variable.
 
 ---
 
@@ -115,6 +115,17 @@ Enable write tools only when you intend to use them, and remove the flag when do
 | `get_vol_analytics(ticker)` | IV skew curve, term structure, and ATM IV ladder from live options chain |
 | `get_position_limits(ticker)` | Max profit, max loss, net premium, and breakeven prices for open positions |
 | `get_forward_pnl(ticker, target_price, target_date, iv_multiplier)` | BS-model P&L simulation at a target price/date with optional IV crush |
+| `get_order_flow_chart(ticker)` | Per-ticker order flow overlay — buy/sell pressure by strike, net delta flow |
+| `get_pretrade_all()` | Bulk pre-trade gate across entire universe — pass/fail with blocking reason per ticker |
+| `get_stop_loss_all()` | Stop-loss verdict for every open position at once |
+| `get_roll_all()` | Roll evaluation for every open position at once |
+| `get_journal_suggestion()` | AI-generated draft journal entry for the current session |
+| `get_earnings_history(ticker)` | Historical earnings dates from yfinance |
+| `get_settings_narrative()` | AI-generated plain-English summary of current strategy settings |
+| `get_hydrated_assets()` | In-memory hydration cache (DP floors, whale flow, IV crush data) |
+| `get_ibkr_preview()` | IBKR connection preview — account summary and available margin |
+| `list_scripts()` | List all available VPS automation scripts with keys and descriptions |
+| `get_time_of_day()` | Current market session context — pre/open/AH/closed, next open/close times |
 
 ## Tier 2 Tools — Write (9 tools, require `FORTRESS_MCP_ALLOW_WRITES=1`)
 
@@ -129,6 +140,7 @@ Enable write tools only when you intend to use them, and remove the flag when do
 | `add_universe_ticker(ticker, tier)` | Add a ticker to the trading universe |
 | `update_settings_section(section, data)` | Update a settings section |
 | `trigger_ibkr_sync()` | Trigger a full IBKR positions sync |
+| `run_script(script_key)` | Execute a named VPS automation script (use list_scripts() to discover keys) |
 
 ---
 
