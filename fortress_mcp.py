@@ -1067,6 +1067,54 @@ def get_time_of_day() -> dict:
     """
     return _get("/api/run/time_of_day")
 
+
+
+# ---------------------------------------------------------------------------
+# Tier 1.5 -- Portfolio Analytics (Sprint v8.16 -- G-01/02/03/04)
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def get_portfolio_beta() -> dict:
+    """
+    SPY beta-weighted portfolio delta with per-ticker breakdown.
+    Returns beta_weighted_delta (SPY-equivalent shares), spy_price, and
+    component_betas sorted by delta contribution magnitude.
+    Use to assess directional exposure and identify hedge gaps.
+    """
+    return _get("/api/portfolio/beta")
+
+@mcp.tool()
+def get_sector_exposure() -> dict:
+    """
+    Portfolio notional exposure grouped by GICS sector.
+    Returns sectors sorted by notional with pct and tickers per sector.
+    Flags breach if any sector exceeds concentration_max_pct (default 40%).
+    Use before adding a position to check concentration.
+    """
+    return _get("/api/portfolio/sector-exposure")
+
+@mcp.tool()
+def get_capital_efficiency() -> dict:
+    """
+    Annualised premium income / capital at risk per position.
+    Returns capital_efficiency ratio for each ticker and portfolio totals.
+    Benchmark is 12% (0.12). Sorted by efficiency descending.
+    Use to identify underperforming positions and prioritise rolls.
+    """
+    return _get("/api/portfolio/capital-efficiency")
+
+@mcp.tool()
+def get_earnings_volatility(ticker: str) -> dict:
+    """
+    Implied earnings move vs historical realized moves for a ticker.
+    implied_move_pct = ATM straddle / stock price at nearest post-earnings expiry.
+    historical_moves = last 8 earnings realized absolute pct moves.
+    A ratio > 1 means market pricing more vol than history supports.
+    Args:
+        ticker: Stock ticker e.g. AAPL
+    """
+    return _get(f"/api/market/earnings-volatility/{ticker.upper()}")
+
 if __name__ == "__main__":
     if not API_TOKEN:
         import sys
@@ -1082,7 +1130,8 @@ if __name__ == "__main__":
     qd_status = "ENABLED" if QD_AVAILABLE else "DISABLED (set QUANTDATA_AUTH_TOKEN + QUANTDATA_INSTANCE_ID to enable)"
     import sys
     print(f"[fortress-mcp] Connecting to {API_URL}", file=sys.stderr)
-    print(f"[fortress-mcp] Tier 1 tools: 19 (read-only)", file=sys.stderr)
+    print(f"[fortress-mcp] Tier 1 + 1.5 tools: 33 (read-only)", file=sys.stderr)
+    print(f"[fortress-mcp] Tier 1.5 portfolio tools: get_portfolio_beta, get_sector_exposure, get_capital_efficiency, get_earnings_volatility", file=sys.stderr)
     print(f"[fortress-mcp] Tier 1b QuantData live tools: {qd_status}", file=sys.stderr)
     print(f"[fortress-mcp] Tier 2 write tools: {tier2_status}", file=sys.stderr)
 
