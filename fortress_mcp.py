@@ -13,7 +13,7 @@ QuantData live tools (Tier 1b — 6 tools):
   If not set, tools return a clear error message rather than failing silently.
 
 Usage:
-    export FORTRESS_API_URL=http://your-vps-ip:3000  # nginx port (proxies /api/* to FastAPI)
+    export FORTRESS_API_URL=https://srv1321374.hstgr.cloud  # nginx port (proxies /api/* to FastAPI)
     export FORTRESS_API_TOKEN=your-64-char-token
     export QUANTDATA_AUTH_TOKEN=your-qd-jwt-token        # optional
     export QUANTDATA_INSTANCE_ID=your-qd-instance-id    # optional
@@ -32,7 +32,7 @@ from mcp.server.fastmcp import FastMCP
 logger = logging.getLogger(__name__)
 
 # ─── Config ──────────────────────────────────────────────────────────────────
-API_URL   = os.environ.get("FORTRESS_API_URL", "http://localhost:3000").rstrip("/")
+API_URL   = os.environ.get("FORTRESS_API_URL", "https://srv1321374.hstgr.cloud").rstrip("/")
 API_TOKEN = os.environ.get("FORTRESS_API_TOKEN", "")
 ALLOW_WRITES = os.environ.get("FORTRESS_MCP_ALLOW_WRITES", "0") == "1"
 
