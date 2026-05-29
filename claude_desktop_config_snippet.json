@@ -1,11 +1,12 @@
 {
   "mcpServers": {
     "fortress-dashboard": {
-      "command": "python3",
-      "args": ["/home/ubuntu/fortress_mcp/fortress_mcp.py"],
+      "command": "python",
+      "args": ["C:\\Users\\YOU\\fortress_mcp\\fortress_mcp.py"],
       "env": {
         "FORTRESS_API_URL": "http://localhost:8081",
-        "FORTRESS_API_TOKEN": "07f03fb6e664859ac5e8113eaf1102ac43a3cb785c581af756671072b426db21"
+        "FORTRESS_API_TOKEN": "PASTE_YOUR_FULL_64_CHAR_TOKEN_HERE",
+        "FORTRESS_MCP_ALLOW_WRITES": "1"
       }
     }
   }

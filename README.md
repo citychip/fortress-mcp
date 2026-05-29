@@ -87,3 +87,18 @@ Fortress V4 API  (http://localhost:8081 — running in WSL)
 | [fortress-v4-api](https://github.com/citychip/fortress-v4-api) | FastAPI backend |
 | [fortress-v4-frontend](https://github.com/citychip/fortress-v4-frontend) | React frontend |
 | [fortress-install](https://github.com/citychip/fortress-install) | WSL installation guide and scripts |
+
+---
+
+## Finding Your Token
+
+After running `install_fortress.py`, edit `claude_desktop_config.json` and set `FORTRESS_API_TOKEN` to the value from your WSL service file:
+
+```bash
+# In WSL — print your token
+grep FORTRESS_API_TOKEN /etc/systemd/system/fortress-dashboard-v4.service
+```
+
+Copy the full 64-character hex string. The same token goes in:
+- `claude_desktop_config.json` → `FORTRESS_API_TOKEN`
+- Browser Settings → API Connection → Bearer Token

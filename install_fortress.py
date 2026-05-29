@@ -26,7 +26,7 @@ ENTRY = {
     "args": [SERVER_PATH],
     "env": {
         "FORTRESS_API_URL": "http://localhost:8081",
-        "FORTRESS_API_TOKEN": "YOUR_TOKEN_HERE",
+        "FORTRESS_API_TOKEN": "PASTE_YOUR_FULL_64_CHAR_TOKEN_HERE",
         "FORTRESS_MCP_ALLOW_WRITES": "1",
     },
 }
