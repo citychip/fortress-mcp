@@ -8,15 +8,13 @@ Auth:      Bearer token via FORTRESS_API_TOKEN env var
 Writes:    Enabled only when FORTRESS_MCP_ALLOW_WRITES=1
 
 QuantData live tools (Tier 1b — 6 tools):
-  Requires QUANTDATA_AUTH_TOKEN + QUANTDATA_INSTANCE_ID env vars.
-  These call the QuantData API directly for real-time market data.
-  If not set, tools return a clear error message rather than failing silently.
+  Proxied through the Fortress server — no local QD credentials needed.
+  The server must have QUANTDATA_AUTH_TOKEN + QUANTDATA_INSTANCE_ID set
+  in its systemd env override.
 
 Usage:
     export FORTRESS_API_URL=http://localhost:8081
     export FORTRESS_API_TOKEN=your-64-char-token
-    export QUANTDATA_AUTH_TOKEN=your-qd-jwt-token        # optional
-    export QUANTDATA_INSTANCE_ID=your-qd-instance-id    # optional
     python3 fortress_mcp.py
 """
 
@@ -38,11 +36,8 @@ API_URL   = os.environ.get("FORTRESS_API_URL", "http://localhost:8081").rstrip("
 API_TOKEN = os.environ.get("FORTRESS_API_TOKEN", "")
 ALLOW_WRITES = os.environ.get("FORTRESS_MCP_ALLOW_WRITES", "0") == "1"
 
-# QuantData live API credentials (optional — only needed for Tier 1b tools)
-QD_AUTH_TOKEN   = os.environ.get("QUANTDATA_AUTH_TOKEN", "")
-QD_INSTANCE_ID  = os.environ.get("QUANTDATA_INSTANCE_ID", "")
-QD_BASE_URL     = "https://core-lb-prod.quantdata.us/api"
-QD_AVAILABLE    = bool(QD_AUTH_TOKEN and QD_INSTANCE_ID)
+# QuantData tools are proxied through the Fortress server — no local credentials needed.
+QD_AVAILABLE    = True
 
 mcp = FastMCP(
     "fortress-dashboard",
@@ -51,71 +46,28 @@ mcp = FastMCP(
         "All monetary values are USD. Delta target: 0.35 net long. "
         "Use get_briefing() first for any portfolio question. "
         "Never execute trades — this server is read-only unless FORTRESS_MCP_ALLOW_WRITES=1. "
-        "Live QuantData tools (qd_*) require QUANTDATA_AUTH_TOKEN + QUANTDATA_INSTANCE_ID env vars."
+        "Live QuantData tools (qd_*) are proxied through the Fortress server."
     ),
 )
 
 # ─── QuantData HTTP client ────────────────────────────────────────────────────
-def _qd_check() -> None:
-    """Raise if QuantData credentials are not configured."""
-    if not QD_AVAILABLE:
-        raise ValueError(
-            "QuantData credentials not configured. "
-            "Set QUANTDATA_AUTH_TOKEN and QUANTDATA_INSTANCE_ID environment variables. "
-            "See README for how to obtain these from your QuantData account."
-        )
-
 def _qd_get(endpoint: str, params: dict | None = None) -> Any:
-    """GET request to QuantData API with retry-with-backoff."""
-    _qd_check()
-    url = f"{QD_BASE_URL}/{endpoint.lstrip('/')}"
-    headers = {
-        "accept": "application/json",
-        "authorization": QD_AUTH_TOKEN,
-        "x-instance-id": QD_INSTANCE_ID,
-        "x-qd-version": "1",
-        "origin": "https://v3.quantdata.us",
+    """Proxy QuantData request through the Fortress server — no local QD credentials needed."""
+    # Map QuantData tool endpoint names to server proxy routes
+    endpoint_map = {
+        "tool/OPTIONS_DARK_POOL_LEVELS_TABLE":          "/api/qd/dark-pool",
+        "tool/OPTIONS_ORDER_FLOW_CONSOLIDATED_TABLE":   "/api/qd/order-flow",
+        "tool/OPTIONS_NET_DRIFT_CHART":                 "/api/qd/net-drift",
+        "tool/OPTIONS_MAX_PAIN_CHART":                  "/api/qd/max-pain",
+        "tool/OPTIONS_IV_RANK_CHART":                   "/api/qd/iv-rank",
+        "tool/OPTIONS_OPEN_INTEREST_CHANGE_TABLE":      "/api/qd/oi-change",
     }
-    for attempt in range(3):
-        try:
-            resp = requests.get(url, headers=headers, params=params, timeout=15)
-            if resp.status_code == 401:
-                raise ValueError("QuantData authentication failed — check QUANTDATA_AUTH_TOKEN and QUANTDATA_INSTANCE_ID.")
-            if resp.status_code == 429:
-                if attempt < 2:
-                    time.sleep(1.0 * (2 ** attempt))
-                    continue
-                raise ValueError("QuantData rate limit exceeded. Try again in a few seconds.")
-            resp.raise_for_status()
-            return resp.json()
-        except requests.exceptions.RequestException as e:
-            if attempt < 2:
-                time.sleep(0.5 * (2 ** attempt))
-                continue
-            raise ValueError(f"QuantData API request failed after 3 attempts: {e}") from e
-    raise ValueError("Unexpected error in QuantData request handling")
-
-def _qd_set_filter(page_id: str, session_date: str, ticker: str) -> bool:
-    """Set page-level ticker + date filter on QuantData before fetching data."""
-    if not QD_AVAILABLE:
-        return False
-    url = f"{QD_BASE_URL}/page/{page_id}/filter"
-    headers = {
-        "accept": "application/json",
-        "authorization": QD_AUTH_TOKEN,
-        "x-instance-id": QD_INSTANCE_ID,
-        "x-qd-version": "1",
-        "origin": "https://v3.quantdata.us",
-    }
-    payload = {
-        "sessionDate": {"filterOperationType": "EQUALS", "value": session_date},
-        "ticker": {"filterOperationType": "EQUALS", "value": [ticker]},
-    }
-    try:
-        resp = requests.put(url, headers=headers, json=payload, timeout=10)
-        return resp.status_code < 300
-    except Exception:
-        return False
+    path = endpoint_map.get(endpoint.lstrip("/"))
+    if not path:
+        raise ValueError(f"Unknown QuantData endpoint: {endpoint}")
+    # Server routes use path param for ticker, extract it from params
+    ticker = (params or {}).pop("ticker", "")
+    return _get(f"{path}/{ticker}", params or None)
 
 # ─── HTTP client ─────────────────────────────────────────────────────────────
 def _client() -> httpx.Client:
@@ -574,21 +526,11 @@ def qd_get_dark_pool_levels(ticker: str, session_date: str | None = None) -> dic
     Returns: {"ticker", "dp_levels": [{"price", "notional_m", "type"}, ...]}
     """
     from datetime import date
-    _qd_check()
     if not session_date:
         session_date = date.today().isoformat()
     data = _qd_get(f"tool/OPTIONS_DARK_POOL_LEVELS_TABLE",
                    params={"ticker": ticker, "sessionDate": session_date})
-    response = data.get("response", data)
-    rows = response.get("rows", response.get("data", []))
-    levels = []
-    for row in rows:
-        price = row.get("price") or row.get("level") or row.get("strike")
-        notional = row.get("notional") or row.get("notionalM") or row.get("volume")
-        level_type = row.get("type", "floor")
-        if price:
-            levels.append({"price": price, "notional_m": notional, "type": level_type})
-    return {"ticker": ticker, "session_date": session_date, "dp_levels": levels, "source": "quantdata_live_api"}
+    return {"ticker": ticker, "session_date": session_date, "dp_levels": data.get("dp_levels", []), "source": "quantdata_live_api"}
 
 @mcp.tool()
 def qd_get_order_flow(
@@ -615,7 +557,6 @@ def qd_get_order_flow(
               "premium", "size", "is_sweep", "is_block", "sentiment"}, ...]}
     """
     from datetime import date
-    _qd_check()
     if not session_date:
         session_date = date.today().isoformat()
     params: dict = {"ticker": ticker, "sessionDate": session_date, "limit": limit}
@@ -628,22 +569,7 @@ def qd_get_order_flow(
     if side:
         params["side"] = side.upper()
     data = _qd_get("tool/OPTIONS_ORDER_FLOW_CONSOLIDATED_TABLE", params=params)
-    response = data.get("response", data)
-    rows = response.get("rows", response.get("data", []))
-    flow = []
-    for row in rows:
-        flow.append({
-            "time":      row.get("time") or row.get("timestamp"),
-            "side":      row.get("side") or row.get("callPut"),
-            "strike":    row.get("strike"),
-            "expiry":    row.get("expiry") or row.get("expirationDate"),
-            "premium":   row.get("premium") or row.get("totalPremium"),
-            "size":      row.get("size") or row.get("quantity"),
-            "is_sweep":  row.get("isSweep", False),
-            "is_block":  row.get("isBlock", False),
-            "sentiment": row.get("sentiment") or row.get("aggressor"),
-        })
-    return {"ticker": ticker, "session_date": session_date, "flow": flow, "source": "quantdata_live_api"}
+    return {"ticker": ticker, "session_date": session_date, "flow": data.get("flow", []), "source": "quantdata_live_api"}
 
 @mcp.tool()
 def qd_get_net_drift(ticker: str, session_date: str | None = None) -> dict:
@@ -658,23 +584,17 @@ def qd_get_net_drift(ticker: str, session_date: str | None = None) -> dict:
               "net_drift", "bias": 'bullish'|'bearish'|'neutral'}
     """
     from datetime import date
-    _qd_check()
     if not session_date:
         session_date = date.today().isoformat()
     data = _qd_get("tool/OPTIONS_NET_DRIFT_CHART",
                    params={"ticker": ticker, "sessionDate": session_date})
-    response = data.get("response", data)
-    call_prem = response.get("callPremium") or response.get("totalCallPremium", 0)
-    put_prem  = response.get("putPremium")  or response.get("totalPutPremium", 0)
-    net = (call_prem or 0) - (put_prem or 0)
-    bias = "bullish" if net > 0 else ("bearish" if net < 0 else "neutral")
     return {
         "ticker":        ticker,
         "session_date":  session_date,
-        "call_premium":  call_prem,
-        "put_premium":   put_prem,
-        "net_drift":     net,
-        "bias":          bias,
+        "call_premium":  data.get("call_premium"),
+        "put_premium":   data.get("put_premium"),
+        "net_drift":     data.get("net_drift"),
+        "bias":          data.get("bias"),
         "source":        "quantdata_live_api",
     }
 
@@ -691,30 +611,17 @@ def qd_get_max_pain(ticker: str, session_date: str | None = None) -> dict:
               "distance_pct", "expirations": [{"date", "max_pain"}, ...]}
     """
     from datetime import date
-    _qd_check()
     if not session_date:
         session_date = date.today().isoformat()
     data = _qd_get("tool/OPTIONS_MAX_PAIN_CHART",
                    params={"ticker": ticker, "sessionDate": session_date})
-    response = data.get("response", data)
-    max_pain = response.get("maxPain") or response.get("maxPainStrike")
-    current  = response.get("currentPrice") or response.get("underlyingPrice")
-    dist_pct = None
-    if max_pain and current and current != 0:
-        dist_pct = round((max_pain - current) / current * 100, 2)
-    expirations = []
-    for row in response.get("expirations", response.get("data", [])):
-        expirations.append({
-            "date":      row.get("expirationDate") or row.get("date"),
-            "max_pain":  row.get("maxPain") or row.get("maxPainStrike"),
-        })
     return {
         "ticker":          ticker,
         "session_date":    session_date,
-        "max_pain_strike": max_pain,
-        "current_price":   current,
-        "distance_pct":    dist_pct,
-        "expirations":     expirations,
+        "max_pain_strike": data.get("max_pain_strike"),
+        "current_price":   data.get("current_price"),
+        "distance_pct":    data.get("distance_pct"),
+        "expirations":     data.get("expirations", []),
         "source":          "quantdata_live_api",
     }
 
@@ -731,22 +638,21 @@ def qd_get_iv_rank(ticker: str, session_date: str | None = None) -> dict:
               "iv_52w_high", "iv_52w_low", "call_iv", "put_iv"}
     """
     from datetime import date
-    _qd_check()
     if not session_date:
         session_date = date.today().isoformat()
     data = _qd_get("tool/OPTIONS_IV_RANK_CHART",
                    params={"ticker": ticker, "sessionDate": session_date})
-    response = data.get("response", data)
+    # Server proxy returns already-parsed fields
     return {
         "ticker":         ticker,
         "session_date":   session_date,
-        "iv_rank":        response.get("ivRank") or response.get("rank"),
-        "iv_percentile":  response.get("ivPercentile") or response.get("percentile"),
-        "current_iv":     response.get("currentIv") or response.get("iv"),
-        "iv_52w_high":    response.get("iv52wHigh") or response.get("high52w"),
-        "iv_52w_low":     response.get("iv52wLow") or response.get("low52w"),
-        "call_iv":        response.get("callIv"),
-        "put_iv":         response.get("putIv"),
+        "iv_rank":        data.get("iv_rank"),
+        "iv_percentile":  data.get("iv_percentile"),
+        "current_iv":     data.get("current_iv"),
+        "iv_52w_high":    data.get("iv_52w_high"),
+        "iv_52w_low":     data.get("iv_52w_low"),
+        "call_iv":        data.get("call_iv"),
+        "put_iv":         data.get("put_iv"),
         "source":         "quantdata_live_api",
     }
 
@@ -763,28 +669,16 @@ def qd_get_oi_change(ticker: str, session_date: str | None = None) -> dict:
               "side", "oi_change", "pct_change"}, ...]}
     """
     from datetime import date
-    _qd_check()
     if not session_date:
         session_date = date.today().isoformat()
     data = _qd_get("tool/OPTIONS_OPEN_INTEREST_CHANGE_TABLE",
                    params={"ticker": ticker, "sessionDate": session_date})
-    response = data.get("response", data)
-    rows = response.get("rows", response.get("data", []))
-    notable = []
-    for row in rows:
-        notable.append({
-            "strike":     row.get("strike"),
-            "expiry":     row.get("expirationDate") or row.get("expiry"),
-            "side":       row.get("side") or row.get("callPut"),
-            "oi_change":  row.get("oiChange") or row.get("change"),
-            "pct_change": row.get("pctChange") or row.get("percentChange"),
-        })
     return {
         "ticker":               ticker,
         "session_date":         session_date,
-        "total_call_oi_change": response.get("totalCallOiChange"),
-        "total_put_oi_change":  response.get("totalPutOiChange"),
-        "notable":              notable,
+        "total_call_oi_change": data.get("total_call_oi_change"),
+        "total_put_oi_change":  data.get("total_put_oi_change"),
+        "notable":              data.get("notable", []),
         "source":               "quantdata_live_api",
     }
 
@@ -1215,7 +1109,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     tier2_status = "ENABLED" if ALLOW_WRITES else "DISABLED (set FORTRESS_MCP_ALLOW_WRITES=1 to enable)"
-    qd_status = "ENABLED" if QD_AVAILABLE else "DISABLED (set QUANTDATA_AUTH_TOKEN + QUANTDATA_INSTANCE_ID to enable)"
+    qd_status = "ENABLED (proxied via Fortress server)"
     import sys
     print(f"[fortress-mcp v{FORTRESS_MCP_VERSION}] Connecting to {API_URL}", file=sys.stderr)
     print(f"[fortress-mcp] Tier 1 read-only tools: 45 (incl. pcs_exposure, pnl_history, version)", file=sys.stderr)
