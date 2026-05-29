@@ -13,7 +13,7 @@ QuantData live tools (Tier 1b — 6 tools):
   If not set, tools return a clear error message rather than failing silently.
 
 Usage:
-    export FORTRESS_API_URL=https://srv1321374.hstgr.cloud  # nginx port (proxies /api/* to FastAPI)
+    export FORTRESS_API_URL=http://localhost:8081
     export FORTRESS_API_TOKEN=your-64-char-token
     export QUANTDATA_AUTH_TOKEN=your-qd-jwt-token        # optional
     export QUANTDATA_INSTANCE_ID=your-qd-instance-id    # optional
@@ -28,11 +28,13 @@ from typing import Optional, Any
 import httpx
 import requests
 from mcp.server.fastmcp import FastMCP
+FORTRESS_MCP_VERSION = "4.0.0"
+
 
 logger = logging.getLogger(__name__)
 
 # ─── Config ──────────────────────────────────────────────────────────────────
-API_URL   = os.environ.get("FORTRESS_API_URL", "https://srv1321374.hstgr.cloud").rstrip("/")
+API_URL   = os.environ.get("FORTRESS_API_URL", "http://localhost:8081").rstrip("/")
 API_TOKEN = os.environ.get("FORTRESS_API_TOKEN", "")
 ALLOW_WRITES = os.environ.get("FORTRESS_MCP_ALLOW_WRITES", "0") == "1"
 
@@ -45,7 +47,7 @@ QD_AVAILABLE    = bool(QD_AUTH_TOKEN and QD_INSTANCE_ID)
 mcp = FastMCP(
     "fortress-dashboard",
     instructions=(
-        "Fortress Dashboard MCP — Portfolio Strategy v3.7.2. "
+        "Fortress Dashboard MCP v4.0.0 — Portfolio Strategy v3.7.2. "
         "All monetary values are USD. Delta target: 0.35 net long. "
         "Use get_briefing() first for any portfolio question. "
         "Never execute trades — this server is read-only unless FORTRESS_MCP_ALLOW_WRITES=1. "
@@ -352,7 +354,7 @@ def pretrade_check(ticker: str, strategy: str) -> dict:
     strategy: strategy type, e.g. 'short_put', 'short_strangle', 'jade_lizard'
     Returns: go / no-go with per-gate breakdown.
     """
-    return _get("/api/ibkr/preview", params={"ticker": ticker, "strategy": strategy})
+    return _get("/api/manage/pre_trade_check", params={"ticker": ticker, "strategy": strategy})
 
 @mcp.tool()
 def get_capability(refresh: bool = False) -> dict:
@@ -367,10 +369,13 @@ def get_capability(refresh: bool = False) -> dict:
 @mcp.tool()
 def get_ibkr_status() -> dict:
     """
-    Legacy TWS gateway connection status (diagnostics only).
-    For current Greeks backend health, prefer get_capability().
+    IBKR / Greeks backend status — returns active backend, session health,
+    OPRA subscription status, and last checked timestamp.
+    Wraps /api/ibkr/capability (the /api/ibkr/status legacy route has a
+    known bug and is bypassed here).
+    For a detailed capability probe with refresh, call get_capability().
     """
-    return _get("/api/ibkr/status")
+    return _get("/api/ibkr/capability")
 
 @mcp.tool()
 def get_settings() -> dict:
@@ -907,7 +912,29 @@ def get_position_limits(ticker: str) -> dict:
     Args:
         ticker: Ticker symbol matching an open position, e.g. "MSFT"
     """
-    return _get(f"/api/options/position-limits?ticker={ticker}")
+    import json as _json
+    import urllib.parse as _urlparse
+
+    # Fetch live positions and extract legs for this ticker
+    positions_resp = _get("/api/positions")
+    all_positions = positions_resp.get("positions", [])
+    ticker_up = ticker.upper()
+    legs = [
+        {
+            "right": p.get("right", "C"),
+            "strike": float(p.get("strike", 0)),
+            "qty": float(p.get("qty", 0)),
+            "premium": float(p.get("avg_cost", 0)) / float(p.get("multiplier", 100) or 100),
+            "expiry": p.get("expiry", ""),
+        }
+        for p in all_positions
+        if p.get("ticker", "").upper() == ticker_up and p.get("sec_type") == "OPT"
+    ]
+    if not legs:
+        return {"error": f"No open option positions found for {ticker_up}"}
+
+    legs_json = _urlparse.quote(_json.dumps(legs))
+    return _get(f"/api/options/position-limits?ticker={ticker_up}&legs={legs_json}")
 
 @mcp.tool()
 def get_forward_pnl(
@@ -933,11 +960,35 @@ def get_forward_pnl(
         iv_multiplier: IV adjustment factor (default 1.0 = current IV;
                        0.6 = 40% IV crush for post-earnings scenarios)
     """
+    import json as _json
+    import urllib.parse as _urlparse
+
+    # Fetch live positions and extract legs for this ticker
+    positions_resp = _get("/api/positions")
+    all_positions = positions_resp.get("positions", [])
+    ticker_up = ticker.upper()
+    legs = [
+        {
+            "right": p.get("right", "C"),
+            "strike": float(p.get("strike", 0)),
+            "qty": float(p.get("qty", 0)),
+            "premium": float(p.get("avg_cost", 0)) / float(p.get("multiplier", 100) or 100),
+            "expiry": p.get("expiry", ""),
+        }
+        for p in all_positions
+        if p.get("ticker", "").upper() == ticker_up and p.get("sec_type") == "OPT"
+    ]
+    if not legs:
+        return {"error": f"No open option positions found for {ticker_up}"}
+
+    legs_json = _urlparse.quote(_json.dumps(legs))
+    # Note: endpoint param is iv_adj (not iv_multiplier) — map accordingly
     params = (
-        f"?ticker={ticker}"
+        f"?ticker={ticker_up}"
+        f"&legs={legs_json}"
         f"&target_price={target_price}"
         f"&target_date={target_date}"
-        f"&iv_multiplier={iv_multiplier}"
+        f"&iv_adj={iv_multiplier}"
     )
     return _get(f"/api/options/forward-pnl{params}")
 
@@ -1115,6 +1166,43 @@ def get_earnings_volatility(ticker: str) -> dict:
     """
     return _get(f"/api/market/earnings-volatility/{ticker.upper()}")
 
+@mcp.tool()
+def get_pcs_exposure() -> dict:
+    """
+    Portfolio put-call spread (PCS) exposure summary.
+    Returns notional exposure, delta contribution, and margin usage broken
+    down by spread type across all open PCS positions.
+    Use to assess directional risk from credit spread book at a glance.
+    """
+    return _get("/api/portfolio/pcs-exposure")
+
+@mcp.tool()
+def get_pnl_history(days: int = 90) -> dict:
+    """
+    Historical portfolio equity curve from end-of-day snapshots.
+    Returns daily net_liquidation, unrealized_pnl, realized_pnl, and
+    buying_power for up to `days` trading days (default 90).
+    Use to plot the equity curve or compute period returns/drawdowns.
+
+    Args:
+        days: Number of calendar days of history to return (default 90, max 365)
+    """
+    return _get("/api/pnl/history", params={"days": days})
+
+@mcp.tool()
+def get_version() -> dict:
+    """
+    Return the MCP server version and runtime info.
+    Use to verify which version of fortress-mcp is running and confirm
+    connectivity to the correct Fortress Dashboard API instance.
+    """
+    return {
+        "mcp_version": FORTRESS_MCP_VERSION,
+        "api_url": API_URL,
+        "tier2_writes_enabled": ALLOW_WRITES,
+        "quantdata_enabled": QD_AVAILABLE,
+    }
+
 if __name__ == "__main__":
     if not API_TOKEN:
         import sys
@@ -1129,9 +1217,8 @@ if __name__ == "__main__":
     tier2_status = "ENABLED" if ALLOW_WRITES else "DISABLED (set FORTRESS_MCP_ALLOW_WRITES=1 to enable)"
     qd_status = "ENABLED" if QD_AVAILABLE else "DISABLED (set QUANTDATA_AUTH_TOKEN + QUANTDATA_INSTANCE_ID to enable)"
     import sys
-    print(f"[fortress-mcp] Connecting to {API_URL}", file=sys.stderr)
-    print(f"[fortress-mcp] Tier 1 + 1.5 tools: 33 (read-only)", file=sys.stderr)
-    print(f"[fortress-mcp] Tier 1.5 portfolio tools: get_portfolio_beta, get_sector_exposure, get_capital_efficiency, get_earnings_volatility", file=sys.stderr)
+    print(f"[fortress-mcp v{FORTRESS_MCP_VERSION}] Connecting to {API_URL}", file=sys.stderr)
+    print(f"[fortress-mcp] Tier 1 read-only tools: 45 (incl. pcs_exposure, pnl_history, version)", file=sys.stderr)
     print(f"[fortress-mcp] Tier 1b QuantData live tools: {qd_status}", file=sys.stderr)
     print(f"[fortress-mcp] Tier 2 write tools: {tier2_status}", file=sys.stderr)
 
