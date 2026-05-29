@@ -5,30 +5,29 @@ MCP server connecting Claude to the **Fortress Trading Dashboard V4**.
 
 ---
 
-## Installation
+## Quick Install (Windows)
 
-### 1. Install dependencies
+1. Download or clone this repo to a folder on your PC (e.g. `C:\Users\you\fortress_mcp\`)
 
-```bash
-pip3 install mcp httpx requests
-```
+2. Run the installer from PowerShell:
+   ```powershell
+   cd C:\Users\you\fortress_mcp
+   python install_fortress.py
+   ```
+   This installs dependencies (`mcp`, `httpx`, `requests`) and writes the MCP config to Claude Desktop automatically. It supports both traditional and Microsoft Store (UWP) Claude installs.
 
-### 2. Copy MCP server to WSL
+3. Edit `claude_desktop_config.json` (path printed by the installer) and set your `FORTRESS_API_TOKEN`.
 
-```bash
-mkdir -p /home/ubuntu/fortress_mcp
-cp fortress_mcp.py /home/ubuntu/fortress_mcp/
-```
+4. Fully quit Claude from the system tray icon and relaunch.
 
-### 3. Add to Claude Desktop config
+---
 
-Merge `claude_desktop_config_snippet.json` into your Claude Desktop config at:
-- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
-- **WSL**: `/home/ubuntu/.config/Claude/claude_desktop_config.json`
+## Manual Install
 
-The snippet is pre-configured for local WSL (http://localhost:8081). Update `FORTRESS_API_TOKEN` to match your dashboard token.
+If you prefer to configure manually, merge `claude_desktop_config_snippet.json` into your Claude Desktop config:
 
-### 4. Restart Claude Desktop
+- **Traditional install**: `%APPDATA%\Claude\claude_desktop_config.json`
+- **UWP / Store install**: `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\claude_desktop_config.json`
 
 ---
 
@@ -37,46 +36,46 @@ The snippet is pre-configured for local WSL (http://localhost:8081). Update `FOR
 | Variable | Description | Default |
 |---|---|---|
 | `FORTRESS_API_URL` | Dashboard API URL | `http://localhost:8081` |
-| `FORTRESS_API_TOKEN` | Bearer token | *(required)* |
-| `FORTRESS_MCP_ALLOW_WRITES` | Enable write tools | `0` (read-only) |
+| `FORTRESS_API_TOKEN` | Bearer token | *(set this)* |
+| `FORTRESS_MCP_ALLOW_WRITES` | Enable write tools | `1` (enabled) |
 
 ---
 
-## Tool Tiers
+## Requirements
+
+```bash
+pip install mcp httpx requests
+```
+
+---
+
+## Tool Tiers — 64 tools total
 
 | Tier | Count | Description |
 |---|---|---|
 | **Tier 1** | 45 | Read-only: briefing, positions, P&L, alerts, market intelligence, analytics, options |
-| **Tier 2** | 10 | Writes (set `FORTRESS_MCP_ALLOW_WRITES=1`): alerts, journal, settings, IBKR sync |
+| **Tier 2** | 10 | Writes (enabled by default): alerts, journal, settings, IBKR sync, scripts, orders |
 | **QD** | 6 | QuantData live: IV rank, dark pool, order flow, net drift, max pain, OI change |
 | **Charts** | 3 | OHLCV candles, GEX/DP levels, order flow overlays |
 
-Key tools: `get_briefing()`, `get_positions()`, `evaluate_stop_loss()`, `evaluate_roll()`, `pretrade_check()`, `get_capability()`, `qd_get_iv_rank()`, `get_pnl_history()`, `get_chart_data()`
-
----
-
-## Usage with Claude
-
-Always start with `get_briefing()` for any portfolio question — it returns the full situation summary including positions, P&L, regime, and pending actions.
-
-See `examples/` for sample workflows.
+Always start with `get_briefing()` — it returns the full portfolio situation summary.
 
 ---
 
 ## Architecture
 
 ```
-Claude Desktop
+Claude Desktop (Windows)
     │  stdio
     ▼
-fortress_mcp.py  (this file)
+fortress_mcp.py  ← runs as Windows Python process
     │  HTTP + Bearer token
     ▼
-Fortress V4 API  (http://localhost:8081)
+Fortress V4 API  (http://localhost:8081 — running in WSL)
     │
-    ├── IBKR (ibind OAuth 1.0a or CP Gateway)
+    ├── IBKR (ibind OAuth 1.0a or CP Gateway at localhost:5000)
     ├── QuantData.us
-    └── MySQL + Redis
+    └── MySQL + Redis (WSL)
 ```
 
 ---
@@ -87,15 +86,4 @@ Fortress V4 API  (http://localhost:8081)
 |---|---|
 | [fortress-v4-api](https://github.com/citychip/fortress-v4-api) | FastAPI backend |
 | [fortress-v4-frontend](https://github.com/citychip/fortress-v4-frontend) | React frontend |
-| [fortress-install](https://github.com/citychip/fortress-install) | WSL installation guide |
-
----
-
-## Changelog
-
-| Version | Summary |
-|---|---|
-| v4.1 | 64 tools; default URL → localhost:8081; ibind OAuth support in backend |
-| v4.0 | V4 backend integration; QD proxy tools; dual-token auth |
-| v3.9 | Dynamic QD tool ID discovery |
-| v3.7 | 61 tools; portfolio analytics tier |
+| [fortress-install](https://github.com/citychip/fortress-install) | WSL installation guide and scripts |
