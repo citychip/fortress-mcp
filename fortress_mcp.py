@@ -1124,6 +1124,32 @@ def get_version() -> dict:
         "quantdata_enabled": QD_AVAILABLE,
     }
 
+
+@mcp.tool()
+def qd_status() -> dict:
+    """
+    Check whether the QuantData live API is reachable and authenticated.
+    Makes a lightweight test call (IV rank for SPY) and reports latency.
+    Use this before calling any qd_* tool to confirm the feed is live.
+    WARNING: All qd_* tools currently return SPY data regardless of ticker
+    passed (known limitation — PUT /api/tool filter ignored by QuantData).
+    """
+    import time
+    try:
+        t0 = time.monotonic()
+        _get("/api/qd/iv-rank/SPY")
+        latency_ms = round((time.monotonic() - t0) * 1000)
+        return {
+            "status": "ok",
+            "latency_ms": latency_ms,
+            "warning": "All qd_* tools return SPY data only — per-ticker filter not supported by QuantData API.",
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e),
+            "warning": "QuantData feed is down or unauthenticated. Run Settings → QuantData Auto-Login to refresh.",
+        }
 if __name__ == "__main__":
     if not API_TOKEN:
         import sys
