@@ -527,7 +527,20 @@ def retry_ibkr_sync() -> dict:
     _writes_check()
     return _post("/api/ibkr/upload/retry")
 
-# ─── Tier 1b — QuantData live tools (6, read-only, requires QD credentials) ──
+# ─── Tier 1b — QuantData proxy tools (6, read-only) ─────────────────────────
+#
+# KNOWN LIMITATION: All qd_* tools currently return data for the default ticker
+# (SPY) regardless of the ticker parameter passed. This is a QuantData API
+# architectural constraint: tool instances are saved widget states with a frozen
+# ticker. The update_tool pattern (PUT /api/tool) returns HTTP 200 but does not
+# change the cached data. Verified 2026-05-30.
+#
+# For IVR: use get_candidates() or run_script("iv_crush") instead — both use
+# yfinance ATM options IV which is accurate per-ticker.
+# For dark pool / order flow: use the Fortress dashboard UI directly.
+#
+# Future fix path: create per-ticker tool instances (POST /api/tool, ~108 UUIDs)
+# and dispatch by (tool_key, ticker). See FORTRESS_V4_MASTER_DOC.md §6.
 
 @mcp.tool()
 def qd_get_dark_pool_levels(ticker: str, session_date: str | None = None) -> dict:
