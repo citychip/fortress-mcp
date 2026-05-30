@@ -24,7 +24,6 @@ import time
 import logging
 from typing import Optional, Any
 import httpx
-import requests
 from mcp.server.fastmcp import FastMCP
 FORTRESS_MCP_VERSION = "4.0.0"
 
@@ -190,15 +189,18 @@ def get_dp_floors_and_gex(ticker: str) -> dict:
     return _get(f"/api/chart/{ticker}/levels")
 
 @mcp.tool()
-def get_market_intelligence(ticker: str = "SPY") -> dict:
+def get_market_intelligence(ticker: str = "SPY", refresh: bool = False) -> dict:
     """
     Full market intelligence synthesis for a ticker: regime score (-4 to +4),
     GEX gamma flip zone, dark pool floors, net drift, and specific trade setups.
     This is the most sophisticated output the Fortress system produces — use it
     every morning before placing trades and when evaluating directional bias.
     ticker: uppercase ticker symbol, e.g. 'SPY', 'QQQ', 'AAPL'. Defaults to 'SPY'.
+    refresh: set True to bypass the 5-minute server cache and fetch live data.
+             Default False returns cached data instantly. Use refresh=True when
+             you need the latest data after market-moving events.
     """
-    return _get(f"/api/market-intelligence", params={"ticker": ticker})
+    return _get("/api/market-intelligence", params={"ticker": ticker, "refresh": refresh})
 
 @mcp.tool()
 def evaluate_stop_loss(
@@ -512,6 +514,18 @@ def trigger_ibkr_sync(backend: Optional[str] = None) -> dict:
     if backend:
         body["backend"] = backend
     return _post("/api/ibkr/sync", body=body)
+
+@mcp.tool()
+def retry_ibkr_sync() -> dict:
+    """
+    [WRITE — requires FORTRESS_MCP_ALLOW_WRITES=1]
+    Retry the last failed IBKR sync (K-03 fix).
+    Re-runs the same sync pipeline using the same backend as the previous attempt.
+    Use when a sync failed due to a transient error (network drop, gateway timeout).
+    Falls back to a fresh sync if no prior attempt is recorded.
+    """
+    _writes_check()
+    return _post("/api/ibkr/upload/retry")
 
 # ─── Tier 1b — QuantData live tools (6, read-only, requires QD credentials) ──
 
