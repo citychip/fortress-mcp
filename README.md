@@ -1,7 +1,7 @@
 # Fortress MCP Server
 
 MCP server connecting Claude to the **Fortress Trading Dashboard V4**.
-64 tools across portfolio analysis, IBKR management, options strategy, and QuantData market data.
+68 tools across portfolio analysis, IBKR management, options strategy, QuantData market data, and order staging.
 
 ---
 
@@ -37,7 +37,7 @@ If you prefer to configure manually, merge `claude_desktop_config_snippet.json` 
 |---|---|---|
 | `FORTRESS_API_URL` | Dashboard API URL | `http://localhost:8081` |
 | `FORTRESS_API_TOKEN` | Bearer token | *(set this)* |
-| `FORTRESS_MCP_ALLOW_WRITES` | Enable write tools | `1` (enabled) |
+| `FORTRESS_MCP_ALLOW_WRITES` | Enable write tools (stage_order, run_script, approve_order, etc.) | `1` (enabled) |
 
 ---
 
@@ -49,16 +49,25 @@ pip install mcp httpx requests
 
 ---
 
-## Tool Tiers — 64 tools total
+## Tool Tiers — 68 tools total
 
 | Tier | Count | Description |
 |---|---|---|
 | **Tier 1** | 45 | Read-only: briefing, positions, P&L, alerts, market intelligence, analytics, options |
-| **Tier 2** | 10 | Writes (enabled by default): alerts, journal, settings, IBKR sync, scripts, orders |
+| **Tier 2** | 16 | Writes (requires `FORTRESS_MCP_ALLOW_WRITES=1`): alerts, journal, settings, IBKR sync, scripts, orders, **stage_order**, **refresh_iv_data** |
 | **QD** | 6 | QuantData live: IV rank, dark pool, order flow, net drift, max pain, OI change |
 | **Charts** | 3 | OHLCV candles, GEX/DP levels, order flow overlays |
 
 Always start with `get_briefing()` — it returns the full portfolio situation summary.
+
+### New in v4.1.0
+
+**`stage_order`** — Stage a trade in the Build Center approval queue. Full order workflow:
+```
+refresh_iv_data() → get_candidates() → pretrade_check() → stage_order() → preview_order() → approve_order()
+```
+
+**`refresh_iv_data`** — Trigger a fresh IV crush scan. Use when IVR values show 0 or stale intraday data.
 
 ---
 
