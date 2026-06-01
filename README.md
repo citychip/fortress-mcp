@@ -1,7 +1,9 @@
 # Fortress MCP Server
 
 MCP server connecting Claude to the Fortress Trading Dashboard V4.
-64 tools across portfolio analysis, IBKR management, options strategy, and QuantData market data.
+62 tools across portfolio analysis, IBKR management, and options strategy.
+
+> **QuantData** is handled by the standalone `quantdata-mcp` server (registered separately). See setup below.
 
 ## Quick Setup (WSL / Local)
 
@@ -16,11 +18,24 @@ MCP server connecting Claude to the Fortress Trading Dashboard V4.
    pip3 install mcp httpx requests
    ```
 
-3. Add the config snippet to Claude Desktop's `claude_desktop_config.json`:
+3. Install the QuantData MCP:
+   ```bash
+   pip3 install quantdata-mcp --break-system-packages
+   # Credentials are read from ~/.quantdata-mcp/config.json (already configured)
+   ```
+
+4. Add both config blocks to Claude Desktop's `claude_desktop_config.json`:
    - Windows path: `%APPDATA%\Claude\claude_desktop_config.json`
    - Merge the contents of `claude_desktop_config_snippet.json` into it
+   - Add the quantdata block:
+     ```json
+     "quantdata": {
+       "command": "wsl",
+       "args": ["-e", "/home/ubuntu/.local/bin/quantdata-mcp", "serve"]
+     }
+     ```
 
-4. Restart Claude Desktop
+5. Restart Claude Desktop
 
 ## Configuration
 
@@ -28,16 +43,15 @@ The `claude_desktop_config_snippet.json` is pre-configured for local WSL use:
 - `FORTRESS_API_URL`: `http://localhost:8081`
 - `FORTRESS_API_TOKEN`: your bearer token
 
-**QuantData credentials are not required on the client.** All `qd_*` tools proxy through the Fortress server, which holds the QD JWT server-side. No `QUANTDATA_AUTH_TOKEN` or `QUANTDATA_INSTANCE_ID` env vars needed.
+QuantData credentials are stored in `~/.quantdata-mcp/config.json` on WSL. After a credential refresh, restart Claude Desktop to pick up the updated token.
 
 ## Tool Tiers
 
 | Tier | Count | Description |
 |---|---|---|
 | Tier 1 | 45 | Read-only: briefing, positions, P&L, alerts, market intel, analytics |
-| Tier 2 | 10 | Writes (requires `FORTRESS_MCP_ALLOW_WRITES=1`): alerts, journal, sync |
-| QD | 6 | QuantData live data: IV rank, dark pool, order flow, max pain |
-| Charts | 3 | Chart data, GEX, order flow overlays |
+| Tier 2 | 16 | Writes (requires `FORTRESS_MCP_ALLOW_WRITES=1`): alerts, journal, orders, sync |
+| **quantdata-mcp** | **50** | **Standalone MCP — per-ticker IV rank, GEX, order flow, vol skew, dark pool, and more** |
 
 ## Examples
 
@@ -47,3 +61,4 @@ See the `examples/` folder for sample scripts.
 
 - [fortress-v4-api](https://github.com/citychip/fortress-v4-api) — Backend
 - [fortress-install](https://github.com/citychip/fortress-install) — WSL install guide
+- [quantdata-mcp](https://github.com/zzulanas/quantdata-mcp) — QuantData MCP server

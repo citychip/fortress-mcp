@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
 fortress_mcp.py — Fortress Dashboard MCP Server
-Tier 1 (25 read-only tools) + Tier 2 (9 write tools, env-gated)
+Tier 1 (read-only tools) + Tier 2 (write tools, env-gated)
 
 Transport: stdio (launched by Claude Desktop as a subprocess)
 Auth:      Bearer token via FORTRESS_API_TOKEN env var
 Writes:    Enabled only when FORTRESS_MCP_ALLOW_WRITES=1
 
-QuantData live tools (Tier 1b — 6 tools):
-  Proxied through the Fortress server — no local QD credentials needed.
-  The server must have QUANTDATA_AUTH_TOKEN + QUANTDATA_INSTANCE_ID set
-  in its systemd env override.
+QuantData: handled by the standalone quantdata-mcp server (registered
+  separately in claude_desktop_config.json). The 6 legacy qd_* proxy
+  tools have been removed — use the quantdata MCP directly for all
+  per-ticker IV rank, order flow, dark pool, GEX, and vol data.
 
 Usage:
     export FORTRESS_API_URL=http://localhost:8081
@@ -25,7 +25,7 @@ import logging
 from typing import Optional, Any
 import httpx
 from mcp.server.fastmcp import FastMCP
-FORTRESS_MCP_VERSION = "4.0.0"
+FORTRESS_MCP_VERSION = "4.2.0"
 
 
 logger = logging.getLogger(__name__)
@@ -35,38 +35,17 @@ API_URL   = os.environ.get("FORTRESS_API_URL", "http://localhost:8081").rstrip("
 API_TOKEN = os.environ.get("FORTRESS_API_TOKEN", "")
 ALLOW_WRITES = os.environ.get("FORTRESS_MCP_ALLOW_WRITES", "0") == "1"
 
-# QuantData tools are proxied through the Fortress server — no local credentials needed.
-QD_AVAILABLE    = True
-
 mcp = FastMCP(
     "fortress-dashboard",
     instructions=(
-        "Fortress Dashboard MCP v4.0.0 — Portfolio Strategy v3.7.2. "
+        "Fortress Dashboard MCP v4.2.0 — Portfolio Strategy v3.7.2. "
         "All monetary values are USD. Delta target: 0.35 net long. "
         "Use get_briefing() first for any portfolio question. "
         "Never execute trades — this server is read-only unless FORTRESS_MCP_ALLOW_WRITES=1. "
-        "Live QuantData tools (qd_*) are proxied through the Fortress server."
+        "For QuantData signals (IV rank, order flow, dark pool, GEX, vol skew) use the "
+        "quantdata MCP server directly — it supports all tickers."
     ),
 )
-
-# ─── QuantData HTTP client ────────────────────────────────────────────────────
-def _qd_get(endpoint: str, params: dict | None = None) -> Any:
-    """Proxy QuantData request through the Fortress server — no local QD credentials needed."""
-    # Map QuantData tool endpoint names to server proxy routes
-    endpoint_map = {
-        "tool/OPTIONS_DARK_POOL_LEVELS_TABLE":          "/api/qd/dark-pool",
-        "tool/OPTIONS_ORDER_FLOW_CONSOLIDATED_TABLE":   "/api/qd/order-flow",
-        "tool/OPTIONS_NET_DRIFT_CHART":                 "/api/qd/net-drift",
-        "tool/OPTIONS_MAX_PAIN_CHART":                  "/api/qd/max-pain",
-        "tool/OPTIONS_IV_RANK_CHART":                   "/api/qd/iv-rank",
-        "tool/OPTIONS_OPEN_INTEREST_CHANGE_TABLE":      "/api/qd/oi-change",
-    }
-    path = endpoint_map.get(endpoint.lstrip("/"))
-    if not path:
-        raise ValueError(f"Unknown QuantData endpoint: {endpoint}")
-    # Server routes use path param for ticker, extract it from params
-    ticker = (params or {}).pop("ticker", "")
-    return _get(f"{path}/{ticker}", params or None)
 
 # ─── HTTP client ─────────────────────────────────────────────────────────────
 def _client() -> httpx.Client:
@@ -113,7 +92,7 @@ def _writes_check() -> None:
             "Write tools are disabled. Set FORTRESS_MCP_ALLOW_WRITES=1 to enable."
         )
 
-# ─── Tier 1 — Read-only tools (19) ───────────────────────────────────────────
+# ─── Tier 1 — Read-only tools ─────────────────────────────────────────────────
 
 @mcp.tool()
 def get_briefing() -> dict:
@@ -351,7 +330,7 @@ def get_quantdata_reports(report: str = "daily", date: str = "latest") -> dict:
     """
     return _get("/api/uploads", params={"report": report, "date": date})
 
-# ─── Tier 2 — Write tools (env-gated, 9 tools) ───────────────────────────────
+# ─── Tier 2 — Write tools (env-gated) ────────────────────────────────────────
 
 @mcp.tool()
 def add_journal_entry(
@@ -527,189 +506,7 @@ def retry_ibkr_sync() -> dict:
     _writes_check()
     return _post("/api/ibkr/upload/retry")
 
-# ─── Tier 1b — QuantData proxy tools (6, read-only) ─────────────────────────
-#
-# KNOWN LIMITATION: All qd_* tools currently return data for the default ticker
-# (SPY) regardless of the ticker parameter passed. This is a QuantData API
-# architectural constraint: tool instances are saved widget states with a frozen
-# ticker. The update_tool pattern (PUT /api/tool) returns HTTP 200 but does not
-# change the cached data. Verified 2026-05-30.
-#
-# For IVR: use get_candidates() or run_script("iv_crush") instead — both use
-# yfinance ATM options IV which is accurate per-ticker.
-# For dark pool / order flow: use the Fortress dashboard UI directly.
-#
-# Future fix path: create per-ticker tool instances (POST /api/tool, ~108 UUIDs)
-# and dispatch by (tool_key, ticker). See FORTRESS_V4_MASTER_DOC.md §6.
-
-@mcp.tool()
-def qd_get_dark_pool_levels(ticker: str, session_date: str | None = None) -> dict:
-    """
-    Live Dark Pool hard floor levels for a ticker from the QuantData API.
-    Supersedes the static parsed-report version (get_dp_floors_and_gex) with
-    real-time data. Use for stop-loss level confirmation and chart overlay.
-    ticker: uppercase ticker symbol, e.g. 'MSFT', 'AAPL'
-    session_date: YYYY-MM-DD (defaults to today)
-    Returns: {"ticker", "dp_levels": [{"price", "notional_m", "type"}, ...]}
-    """
-    from datetime import date
-    if not session_date:
-        session_date = date.today().isoformat()
-    data = _qd_get(f"tool/OPTIONS_DARK_POOL_LEVELS_TABLE",
-                   params={"ticker": ticker, "sessionDate": session_date})
-    return {"ticker": ticker, "session_date": session_date, "dp_levels": data.get("dp_levels", []), "source": "quantdata_live_api"}
-
-@mcp.tool()
-def qd_get_order_flow(
-    ticker: str,
-    session_date: str | None = None,
-    min_premium: float | None = None,
-    is_sweep: bool | None = None,
-    is_block: bool | None = None,
-    side: str | None = None,
-    limit: int = 50,
-) -> dict:
-    """
-    Live options order flow for a ticker from the QuantData API.
-    Use for pre-trade confirmation: look for large sweeps/blocks aligned with
-    your directional thesis before entering a new position.
-    ticker: uppercase ticker symbol
-    session_date: YYYY-MM-DD (defaults to today)
-    min_premium: minimum premium in USD (e.g. 50000 for $50K+ prints)
-    is_sweep: True to filter sweeps only
-    is_block: True to filter blocks only
-    side: 'CALL' or 'PUT' to filter by side
-    limit: max rows to return (default 50)
-    Returns: {"ticker", "session_date", "flow": [{"time", "side", "strike", "expiry",
-              "premium", "size", "is_sweep", "is_block", "sentiment"}, ...]}
-    """
-    from datetime import date
-    if not session_date:
-        session_date = date.today().isoformat()
-    params: dict = {"ticker": ticker, "sessionDate": session_date, "limit": limit}
-    if min_premium is not None:
-        params["minPremium"] = min_premium
-    if is_sweep is not None:
-        params["isSweep"] = str(is_sweep).lower()
-    if is_block is not None:
-        params["isBlock"] = str(is_block).lower()
-    if side:
-        params["side"] = side.upper()
-    data = _qd_get("tool/OPTIONS_ORDER_FLOW_CONSOLIDATED_TABLE", params=params)
-    return {"ticker": ticker, "session_date": session_date, "flow": data.get("flow", []), "source": "quantdata_live_api"}
-
-@mcp.tool()
-def qd_get_net_drift(ticker: str, session_date: str | None = None) -> dict:
-    """
-    Cumulative call vs put premium flow (net drift) for a ticker.
-    Positive net drift = call premium dominates = bullish smart money bias.
-    Negative net drift = put premium dominates = bearish smart money bias.
-    Use as a directional bias signal before entering directional spreads.
-    ticker: uppercase ticker symbol
-    session_date: YYYY-MM-DD (defaults to today)
-    Returns: {"ticker", "session_date", "call_premium", "put_premium",
-              "net_drift", "bias": 'bullish'|'bearish'|'neutral'}
-    """
-    from datetime import date
-    if not session_date:
-        session_date = date.today().isoformat()
-    data = _qd_get("tool/OPTIONS_NET_DRIFT_CHART",
-                   params={"ticker": ticker, "sessionDate": session_date})
-    return {
-        "ticker":        ticker,
-        "session_date":  session_date,
-        "call_premium":  data.get("call_premium"),
-        "put_premium":   data.get("put_premium"),
-        "net_drift":     data.get("net_drift"),
-        "bias":          data.get("bias"),
-        "source":        "quantdata_live_api",
-    }
-
-@mcp.tool()
-def qd_get_max_pain(ticker: str, session_date: str | None = None) -> dict:
-    """
-    Max pain strike and distance from current price for a ticker.
-    Max pain = the price at which option sellers (market makers) have minimum
-    aggregate payout. Use for strike selection on PCS/CSP entries — prefer
-    strikes below max pain for put spreads.
-    ticker: uppercase ticker symbol
-    session_date: YYYY-MM-DD (defaults to today)
-    Returns: {"ticker", "session_date", "max_pain_strike", "current_price",
-              "distance_pct", "expirations": [{"date", "max_pain"}, ...]}
-    """
-    from datetime import date
-    if not session_date:
-        session_date = date.today().isoformat()
-    data = _qd_get("tool/OPTIONS_MAX_PAIN_CHART",
-                   params={"ticker": ticker, "sessionDate": session_date})
-    return {
-        "ticker":          ticker,
-        "session_date":    session_date,
-        "max_pain_strike": data.get("max_pain_strike"),
-        "current_price":   data.get("current_price"),
-        "distance_pct":    data.get("distance_pct"),
-        "expirations":     data.get("expirations", []),
-        "source":          "quantdata_live_api",
-    }
-
-@mcp.tool()
-def qd_get_iv_rank(ticker: str, session_date: str | None = None) -> dict:
-    """
-    IV Rank and IV Percentile for a ticker from QuantData.
-    Richer than the IBKR snapshot IVR — includes configurable lookback,
-    maturity-weighted IV, and call/put IV split.
-    Use for IV crush candidate evaluation (Strategy §4.1 — IVR > 50 threshold).
-    ticker: uppercase ticker symbol
-    session_date: YYYY-MM-DD (defaults to today)
-    Returns: {"ticker", "iv_rank", "iv_percentile", "current_iv",
-              "iv_52w_high", "iv_52w_low", "call_iv", "put_iv"}
-    """
-    from datetime import date
-    if not session_date:
-        session_date = date.today().isoformat()
-    data = _qd_get("tool/OPTIONS_IV_RANK_CHART",
-                   params={"ticker": ticker, "sessionDate": session_date})
-    # Server proxy returns already-parsed fields
-    return {
-        "ticker":         ticker,
-        "session_date":   session_date,
-        "iv_rank":        data.get("iv_rank"),
-        "iv_percentile":  data.get("iv_percentile"),
-        "current_iv":     data.get("current_iv"),
-        "iv_52w_high":    data.get("iv_52w_high"),
-        "iv_52w_low":     data.get("iv_52w_low"),
-        "call_iv":        data.get("call_iv"),
-        "put_iv":         data.get("put_iv"),
-        "source":         "quantdata_live_api",
-    }
-
-@mcp.tool()
-def qd_get_oi_change(ticker: str, session_date: str | None = None) -> dict:
-    """
-    Day-over-day open interest change for a ticker — identifies unusual OI
-    build-up that may signal institutional positioning before earnings or
-    major events. Use to flag unusual activity before entering new positions.
-    ticker: uppercase ticker symbol
-    session_date: YYYY-MM-DD (defaults to today)
-    Returns: {"ticker", "session_date", "total_call_oi_change",
-              "total_put_oi_change", "notable": [{"strike", "expiry",
-              "side", "oi_change", "pct_change"}, ...]}
-    """
-    from datetime import date
-    if not session_date:
-        session_date = date.today().isoformat()
-    data = _qd_get("tool/OPTIONS_OPEN_INTEREST_CHANGE_TABLE",
-                   params={"ticker": ticker, "sessionDate": session_date})
-    return {
-        "ticker":               ticker,
-        "session_date":         session_date,
-        "total_call_oi_change": data.get("total_call_oi_change"),
-        "total_put_oi_change":  data.get("total_put_oi_change"),
-        "notable":              data.get("notable", []),
-        "source":               "quantdata_live_api",
-    }
-
-# ─── Entry point ─────────────────────────────────────────────────────────────
+# ─── Orders ───────────────────────────────────────────────────────────────────
 
 @mcp.tool()
 def get_pending_orders(status=None):
@@ -722,18 +519,71 @@ def get_pending_orders(status=None):
     return _get("/api/orders/pending", params=params)
 
 @mcp.tool()
-def options_greeks(spot: float, strike: float, dte: int, iv: float, right: str, qty=None):
+def stage_order(
+    ticker: str,
+    strategy: str,
+    legs: list,
+    quantity: int = 1,
+    order_type: str = "LMT",
+    limit_price: float = None,
+    notes: str = None,
+    pop: float = None,
+    max_profit: float = None,
+    max_loss: float = None,
+) -> dict:
     """
-    Black-Scholes Greeks for any option.
-    spot: underlying price. strike: strike price. dte: days to expiry.
-    iv: implied vol as decimal (0.30 = 30%). right: C or P.
-    qty: optional contracts — adds pos_delta/pos_theta/pos_vega.
-    Returns delta, theta, gamma, vega, PoP, intrinsic, extrinsic, itm.
+    [WRITE — requires FORTRESS_MCP_ALLOW_WRITES=1]
+    Stage a new order in the Fortress Build Center approval queue.
+
+    Args:
+        ticker:      Primary underlying, e.g. "MSFT"
+        strategy:    Strategy label, e.g. "PMCC", "CSP", "IC", "PCS"
+        legs:        List of leg dicts. Each leg needs:
+                       ticker, sec_type ("OPT"|"STK"), right ("C"|"P"),
+                       strike (float), expiry ("YYYYMMDD"),
+                       action ("BUY"|"SELL"), ratio (int, default 1)
+                     Example:
+                       [{"ticker":"MSFT","sec_type":"OPT","right":"C",
+                         "strike":490.0,"expiry":"20260821",
+                         "action":"SELL","ratio":1}]
+        quantity:    Number of contracts (default 1)
+        order_type:  "LMT" (default), "MKT", or "MOC"
+        limit_price: Limit price per contract (required for LMT)
+        notes:       Optional trade rationale
+        pop:         Probability of profit estimate (0.0–1.0)
+        max_profit:  Max profit in USD
+        max_loss:    Max loss in USD (negative for debit)
+
+    Returns dict with order_id. Next: preview_order(id) → approve_order(id).
     """
-    body = {"spot": spot, "strike": strike, "dte": dte, "iv": iv, "right": right}
-    if qty is not None:
-        body["qty"] = qty
-    return _post("/api/options/greeks", body=body)
+    _writes_check()
+    payload = {
+        "ticker":       ticker.upper(),
+        "strategy":     strategy,
+        "legs":         legs,
+        "quantity":     quantity,
+        "order_type":   order_type,
+        "action":       "SELL",
+        "limit_price":  limit_price,
+        "notes":        notes,
+        "submitted_by": "MCP",
+        "pop":          pop,
+        "max_profit":   max_profit,
+        "max_loss":     max_loss,
+    }
+    data = _post("/api/orders/pending", body=payload)
+    order_id = data.get("id", "unknown")
+    return {
+        "ok":       True,
+        "order_id": order_id,
+        "status":   data.get("status", "pending"),
+        "message":  (
+            f"Order staged (id={order_id}). "
+            f"Run preview_order('{order_id}') to check margin, "
+            f"then approve_order('{order_id}') to submit to IBKR."
+        ),
+        "order": data,
+    }
 
 @mcp.tool()
 def preview_order(order_id: str):
@@ -764,59 +614,27 @@ def decline_order(order_id: str):
     _writes_check()
     return _delete(f"/api/orders/pending/{order_id}")
 
-@mcp.tool()
-def get_pnl() -> dict:
-    """
-    Retrieve the current P&L summary from IBKR positions.
-    Returns unrealised P&L per position and portfolio totals including
-    total unrealised P&L, total market value, and per-ticker breakdown.
-    """
-    return _get("/api/pnl")
-
-# ---------------------------------------------------------------------------
-# High-priority tools added in Sprint v5.0 audit
-# ---------------------------------------------------------------------------
+# ─── Options & Greeks ─────────────────────────────────────────────────────────
 
 @mcp.tool()
-def get_trade_report() -> dict:
+def options_greeks(spot: float, strike: float, dte: int, iv: float, right: str, qty=None):
     """
-    Retrieve the full structured trade report from the Fortress backend.
-    More detailed than get_briefing — includes per-ticker candidate rows with
-    IV rank, GEX zone, bias badge, action recommendations, concentration
-    warnings, stop-loss flags, and post-earnings candidates.
-    Use this when you need the complete actionable trade picture for the day.
+    Black-Scholes Greeks for any option.
+    spot: underlying price. strike: strike price. dte: days to expiry.
+    iv: implied vol as decimal (0.30 = 30%). right: C or P.
+    qty: optional contracts — adds pos_delta/pos_theta/pos_vega.
+    Returns delta, theta, gamma, vega, PoP, intrinsic, extrinsic, itm.
     """
-    return _get("/api/manage/trade_report")
-
-@mcp.tool()
-def get_chart_data(ticker: str, period: str = "6mo", interval: str = "1d") -> dict:
-    """
-    Retrieve OHLCV price data plus technical indicators for a ticker.
-    Returns candlestick data, 50/200 SMA, RSI(14), MACD(12,26,9),
-    Bollinger Bands(20,2), and key GEX/strike overlay levels.
-
-    Args:
-        ticker:   Ticker symbol, e.g. "MSFT"
-        period:   Lookback period — "1mo", "3mo", "6mo", "1y", "2y" (default "6mo")
-        interval: Bar interval — "1d", "1wk" (default "1d")
-    """
-    params = f"?period={period}&interval={interval}"
-    chart   = _get(f"/api/chart/{ticker}{params}")
-    levels  = _get(f"/api/chart/{ticker}/levels")
-    return {"chart": chart, "levels": levels}
+    body = {"spot": spot, "strike": strike, "dte": dte, "iv": iv, "right": right}
+    if qty is not None:
+        body["qty"] = qty
+    return _post("/api/options/greeks", body=body)
 
 @mcp.tool()
 def get_vol_analytics(ticker: str) -> dict:
     """
-    Retrieve volatility analytics for a ticker using live options chain data.
-    Returns three datasets:
-      - iv_skew: IV vs moneyness (%) for calls and puts at the nearest expiry
-      - term_structure: ATM IV across all available expiries (DTE vs IV%)
-      - atm_ladder: per-expiry table of DTE, call IV, put IV, avg IV, and spread
-
-    Use this to assess IV skew shape, term structure steepness, and whether
-    front-month IV is elevated vs back-month (earnings premium, event risk).
-
+    Volatility analytics: IV skew, term structure, ATM IV ladder.
+    Uses live options chain data with quantized-IV detection and BS recalculation.
     Args:
         ticker: Ticker symbol, e.g. "AAPL"
     """
@@ -825,18 +643,13 @@ def get_vol_analytics(ticker: str) -> dict:
 @mcp.tool()
 def get_position_limits(ticker: str) -> dict:
     """
-    Compute max profit, max loss, and breakeven prices for all open positions
-    in a ticker using Black-Scholes (py_vollib).
+    Max profit, max loss, and breakeven prices for all open positions in a ticker.
     Returns: max_profit, max_loss, net_premium, breakevens[], spot, legs[].
-    Useful for quickly understanding the structural risk profile of a position.
-
     Args:
         ticker: Ticker symbol matching an open position, e.g. "MSFT"
     """
     import json as _json
     import urllib.parse as _urlparse
-
-    # Fetch live positions and extract legs for this ticker
     positions_resp = _get("/api/positions")
     all_positions = positions_resp.get("positions", [])
     ticker_up = ticker.upper()
@@ -853,7 +666,6 @@ def get_position_limits(ticker: str) -> dict:
     ]
     if not legs:
         return {"error": f"No open option positions found for {ticker_up}"}
-
     legs_json = _urlparse.quote(_json.dumps(legs))
     return _get(f"/api/options/position-limits?ticker={ticker_up}&legs={legs_json}")
 
@@ -865,26 +677,15 @@ def get_forward_pnl(
     iv_multiplier: float = 1.0,
 ) -> dict:
     """
-    Simulate the forward P&L of all open positions in a ticker at a given
-    target price and date, using Black-Scholes (py_vollib).
-
-    Returns:
-      - point_estimate: P&L in dollars if spot reaches target_price by target_date
-      - curve: list of {price, pnl} points across ±30% of current spot
-      - breakevens: list of breakeven prices
-      - max_profit, max_loss: structural limits at expiry
-
+    Forward P&L of all open positions in a ticker at a target price and date.
     Args:
         ticker:        Ticker symbol matching an open position, e.g. "MSFT"
         target_price:  Hypothetical future spot price, e.g. 450.0
-        target_date:   ISO date string for the target date, e.g. "2025-07-01"
-        iv_multiplier: IV adjustment factor (default 1.0 = current IV;
-                       0.6 = 40% IV crush for post-earnings scenarios)
+        target_date:   ISO date string, e.g. "2025-07-01"
+        iv_multiplier: IV adjustment (default 1.0; use 0.6 for post-earnings IV crush)
     """
     import json as _json
     import urllib.parse as _urlparse
-
-    # Fetch live positions and extract legs for this ticker
     positions_resp = _get("/api/positions")
     all_positions = positions_resp.get("positions", [])
     ticker_up = ticker.upper()
@@ -901,9 +702,7 @@ def get_forward_pnl(
     ]
     if not legs:
         return {"error": f"No open option positions found for {ticker_up}"}
-
     legs_json = _urlparse.quote(_json.dumps(legs))
-    # Note: endpoint param is iv_adj (not iv_multiplier) — map accordingly
     params = (
         f"?ticker={ticker_up}"
         f"&legs={legs_json}"
@@ -913,106 +712,79 @@ def get_forward_pnl(
     )
     return _get(f"/api/options/forward-pnl{params}")
 
-# ---------------------------------------------------------------------------
-# Read tools added in MCP audit — batch 2 (11 tools)
-# ---------------------------------------------------------------------------
+# ─── P&L ──────────────────────────────────────────────────────────────────────
 
 @mcp.tool()
-def get_order_flow_chart(ticker: str) -> dict:
+def get_pnl() -> dict:
     """
-    Per-ticker options order flow overlay data for the chart view.
-    Returns buy/sell pressure by strike, net delta flow, and unusual activity
-    flags. Use alongside get_chart_data to add order flow context to price.
+    Current P&L summary from IBKR positions.
+    Returns unrealised P&L per position and portfolio totals.
+    """
+    return _get("/api/pnl")
 
+@mcp.tool()
+def get_pnl_history(days: int = 90) -> dict:
+    """
+    Historical portfolio equity curve from end-of-day snapshots.
+    Returns daily net_liquidation, unrealized_pnl, realized_pnl, and
+    buying_power for up to `days` trading days (default 90).
     Args:
-        ticker: Ticker symbol, e.g. "AAPL"
+        days: Number of calendar days of history (default 90, max 365)
     """
-    return _get(f"/api/chart/{ticker}/order_flow")
+    return _get("/api/pnl/history", params={"days": days})
+
+# ─── Portfolio analytics ──────────────────────────────────────────────────────
 
 @mcp.tool()
-def get_pretrade_all() -> dict:
+def get_portfolio_beta() -> dict:
     """
-    Run the pre-trade gate check across every ticker in the universe at once.
-    Returns a pass/fail verdict per ticker with the blocking reason if failed.
-    Use this for a morning scan to identify which tickers are actionable today.
+    SPY beta-weighted portfolio delta with per-ticker breakdown.
+    Returns beta_weighted_delta, spy_price, and component_betas.
     """
-    return _get("/api/manage/pretrade_all")
+    return _get("/api/portfolio/beta")
 
 @mcp.tool()
-def get_stop_loss_all() -> dict:
+def get_sector_exposure() -> dict:
     """
-    Evaluate stop-loss signals for every open position at once.
-    Returns hold / close / reduce verdict per position with signal breakdown
-    (delta breach, SMA breach, drawdown, fundamental break).
-    More efficient than calling evaluate_stop_loss() per ticker individually.
+    Portfolio notional exposure grouped by GICS sector.
+    Flags breach if any sector exceeds concentration_max_pct (default 40%).
     """
-    return _get("/api/manage/stop_loss_all")
+    return _get("/api/portfolio/sector-exposure")
 
 @mcp.tool()
-def get_roll_all() -> dict:
+def get_capital_efficiency() -> dict:
     """
-    Evaluate roll candidates for every open position at once.
-    Returns roll recommendation, urgency, and suggested new strikes/expiry
-    for each position. Use for a quick end-of-day roll scan.
+    Annualised premium income / capital at risk per position.
+    Benchmark is 12% (0.12). Sorted by efficiency descending.
     """
-    return _get("/api/manage/roll_all")
+    return _get("/api/portfolio/capital-efficiency")
 
 @mcp.tool()
-def get_journal_suggestion() -> dict:
+def get_pcs_exposure() -> dict:
     """
-    Get an AI-generated journal entry suggestion based on today's positions,
-    market conditions, and recent trades. Returns a draft journal entry
-    with trade rationale, risk notes, and lessons learned.
+    Portfolio put-call spread (PCS) exposure summary.
+    Returns notional exposure, delta contribution, and margin usage.
     """
-    return _get("/api/journal/suggest")
+    return _get("/api/portfolio/pcs-exposure")
 
 @mcp.tool()
-def get_earnings_history(ticker: str) -> dict:
+def get_earnings_volatility(ticker: str) -> dict:
     """
-    Retrieve historical earnings dates for a ticker from yfinance.
-    Returns a list of past earnings dates with EPS actual vs estimate
-    where available. Useful for understanding earnings cadence and
-    typical post-earnings price behaviour.
-
+    Implied earnings move vs historical realized moves for a ticker.
+    implied_move_pct = ATM straddle / stock price at nearest post-earnings expiry.
+    historical_moves = last 8 earnings realized absolute pct moves.
     Args:
-        ticker: Ticker symbol, e.g. "MSFT"
+        ticker: Stock ticker e.g. AAPL
     """
-    return _get(f"/api/calendar/{ticker}/history")
+    return _get(f"/api/market/earnings-volatility/{ticker.upper()}")
 
-@mcp.tool()
-def get_settings_narrative() -> dict:
-    """
-    Get an AI-generated plain-English summary of the current strategy
-    settings — trader persona, active strategies, risk parameters, and
-    signal mode. Useful for quickly understanding the current configuration
-    without reading raw JSON settings.
-    """
-    return _get("/api/settings/narrative")
-
-@mcp.tool()
-def get_hydrated_assets() -> dict:
-    """
-    View the in-memory hydration cache — values pushed to the dashboard
-    by VPS automation scripts (dark pool floors, whale flow, IV crush data).
-    Returns all cached asset keys with their values and timestamps.
-    """
-    return _get("/api/manage/hydrated-assets")
-
-@mcp.tool()
-def get_ibkr_preview() -> dict:
-    """
-    Get a preview of the current IBKR connection state including account
-    summary, available margin, and connection health. Does not place any
-    orders — read-only whatif/preview endpoint.
-    """
-    return _get("/api/ibkr/preview")
+# ─── Scripts & automation ─────────────────────────────────────────────────────
 
 @mcp.tool()
 def list_scripts() -> dict:
     """
-    List all available automation scripts on the Fortress VPS with their
-    keys, display names, descriptions, and last-run timestamps.
-    Use before calling run_script() to discover available script keys.
+    List all available automation scripts with keys, names, and last-run timestamps.
+    Use before calling run_script() to discover valid script keys.
     """
     return _get("/api/run/scripts")
 
@@ -1023,133 +795,155 @@ def run_script(script_key: str) -> dict:
     Execute a named automation script on the Fortress VPS.
     Call list_scripts() first to discover valid script keys.
     Returns stdout, stderr, exit code, and duration.
-
     Args:
-        script_key: Script identifier from list_scripts(), e.g. "morning_brief"
+        script_key: Script identifier from list_scripts(), e.g. "premarket"
     """
     _writes_check()
     return _post(f"/api/run/{script_key}")
 
 @mcp.tool()
+def refresh_iv_data() -> dict:
+    """
+    [WRITE — requires FORTRESS_MCP_ALLOW_WRITES=1]
+    Trigger a fresh IV crush scan (workflow_05_iv_crush_report.py).
+
+    Use when:
+    - IVR values show as 0 or near-zero intraday
+    - Morning scan data is stale
+    - You need current IV ranks before selecting strikes
+
+    Takes ~15 seconds. Returns ranked candidates with IVR, current IV,
+    HV spread, and signals.
+    """
+    _writes_check()
+    return _post("/api/run/iv_crush")
+
+@mcp.tool()
 def get_time_of_day() -> dict:
     """
-    Get the current market session context — pre-market, open, after-hours,
-    or closed — along with the current time, next open/close times, and
-    whether today is a trading day. Useful for time-sensitive decisions.
+    Current market session context — pre-market, open, after-hours, or closed.
+    Returns current time, next open/close, and whether today is a trading day.
     """
     return _get("/api/run/time_of_day")
 
-
-
-# ---------------------------------------------------------------------------
-# Tier 1.5 -- Portfolio Analytics (Sprint v8.16 -- G-01/02/03/04)
-# ---------------------------------------------------------------------------
+# ─── Chart & market data ──────────────────────────────────────────────────────
 
 @mcp.tool()
-def get_portfolio_beta() -> dict:
+def get_trade_report() -> dict:
     """
-    SPY beta-weighted portfolio delta with per-ticker breakdown.
-    Returns beta_weighted_delta (SPY-equivalent shares), spy_price, and
-    component_betas sorted by delta contribution magnitude.
-    Use to assess directional exposure and identify hedge gaps.
+    Full structured trade report. More detailed than get_briefing — includes
+    per-ticker candidate rows with IV rank, GEX zone, bias badge, action
+    recommendations, concentration warnings, stop-loss flags.
     """
-    return _get("/api/portfolio/beta")
+    return _get("/api/manage/trade_report")
 
 @mcp.tool()
-def get_sector_exposure() -> dict:
+def get_chart_data(ticker: str, period: str = "6mo", interval: str = "1d") -> dict:
     """
-    Portfolio notional exposure grouped by GICS sector.
-    Returns sectors sorted by notional with pct and tickers per sector.
-    Flags breach if any sector exceeds concentration_max_pct (default 40%).
-    Use before adding a position to check concentration.
-    """
-    return _get("/api/portfolio/sector-exposure")
-
-@mcp.tool()
-def get_capital_efficiency() -> dict:
-    """
-    Annualised premium income / capital at risk per position.
-    Returns capital_efficiency ratio for each ticker and portfolio totals.
-    Benchmark is 12% (0.12). Sorted by efficiency descending.
-    Use to identify underperforming positions and prioritise rolls.
-    """
-    return _get("/api/portfolio/capital-efficiency")
-
-@mcp.tool()
-def get_earnings_volatility(ticker: str) -> dict:
-    """
-    Implied earnings move vs historical realized moves for a ticker.
-    implied_move_pct = ATM straddle / stock price at nearest post-earnings expiry.
-    historical_moves = last 8 earnings realized absolute pct moves.
-    A ratio > 1 means market pricing more vol than history supports.
+    OHLCV price data plus technical indicators for a ticker.
+    Returns candlestick data, 50/200 SMA, RSI(14), MACD(12,26,9),
+    Bollinger Bands(20,2), and key GEX/strike overlay levels.
     Args:
-        ticker: Stock ticker e.g. AAPL
+        ticker:   Ticker symbol, e.g. "MSFT"
+        period:   "1mo", "3mo", "6mo", "1y", "2y" (default "6mo")
+        interval: "1d", "1wk" (default "1d")
     """
-    return _get(f"/api/market/earnings-volatility/{ticker.upper()}")
+    params = f"?period={period}&interval={interval}"
+    chart  = _get(f"/api/chart/{ticker}{params}")
+    levels = _get(f"/api/chart/{ticker}/levels")
+    return {"chart": chart, "levels": levels}
 
 @mcp.tool()
-def get_pcs_exposure() -> dict:
+def get_order_flow_chart(ticker: str) -> dict:
     """
-    Portfolio put-call spread (PCS) exposure summary.
-    Returns notional exposure, delta contribution, and margin usage broken
-    down by spread type across all open PCS positions.
-    Use to assess directional risk from credit spread book at a glance.
-    """
-    return _get("/api/portfolio/pcs-exposure")
-
-@mcp.tool()
-def get_pnl_history(days: int = 90) -> dict:
-    """
-    Historical portfolio equity curve from end-of-day snapshots.
-    Returns daily net_liquidation, unrealized_pnl, realized_pnl, and
-    buying_power for up to `days` trading days (default 90).
-    Use to plot the equity curve or compute period returns/drawdowns.
-
+    Per-ticker options order flow overlay data for the chart view.
     Args:
-        days: Number of calendar days of history to return (default 90, max 365)
+        ticker: Ticker symbol, e.g. "AAPL"
     """
-    return _get("/api/pnl/history", params={"days": days})
+    return _get(f"/api/chart/{ticker}/order_flow")
+
+# ─── Pre-trade & management ───────────────────────────────────────────────────
+
+@mcp.tool()
+def get_pretrade_all() -> dict:
+    """
+    Pre-trade gate check across every ticker in the universe at once.
+    Returns pass/fail verdict per ticker with blocking reason if failed.
+    """
+    return _get("/api/manage/pretrade_all")
+
+@mcp.tool()
+def get_stop_loss_all() -> dict:
+    """
+    Stop-loss signals for every open position at once.
+    Returns hold / close / reduce verdict per position.
+    """
+    return _get("/api/manage/stop_loss_all")
+
+@mcp.tool()
+def get_roll_all() -> dict:
+    """
+    Roll candidates for every open position at once.
+    Returns roll recommendation, urgency, and suggested new strikes/expiry.
+    """
+    return _get("/api/manage/roll_all")
+
+# ─── Misc read tools ──────────────────────────────────────────────────────────
+
+@mcp.tool()
+def get_journal_suggestion() -> dict:
+    """
+    AI-generated journal entry suggestion based on today's positions and market conditions.
+    """
+    return _get("/api/journal/suggest")
+
+@mcp.tool()
+def get_earnings_history(ticker: str) -> dict:
+    """
+    Historical earnings dates for a ticker from yfinance.
+    Args:
+        ticker: Ticker symbol, e.g. "MSFT"
+    """
+    return _get(f"/api/calendar/{ticker}/history")
+
+@mcp.tool()
+def get_settings_narrative() -> dict:
+    """
+    Plain-English summary of current strategy settings — trader persona,
+    active strategies, risk parameters, and signal mode.
+    """
+    return _get("/api/settings/narrative")
+
+@mcp.tool()
+def get_hydrated_assets() -> dict:
+    """
+    In-memory hydration cache — values pushed by VPS automation scripts.
+    Returns all cached asset keys with their values and timestamps.
+    """
+    return _get("/api/manage/hydrated-assets")
+
+@mcp.tool()
+def get_ibkr_preview() -> dict:
+    """
+    IBKR connection state preview including account summary and margin.
+    Read-only — does not place any orders.
+    """
+    return _get("/api/ibkr/preview")
 
 @mcp.tool()
 def get_version() -> dict:
     """
-    Return the MCP server version and runtime info.
-    Use to verify which version of fortress-mcp is running and confirm
-    connectivity to the correct Fortress Dashboard API instance.
+    MCP server version and runtime info.
     """
     return {
         "mcp_version": FORTRESS_MCP_VERSION,
         "api_url": API_URL,
         "tier2_writes_enabled": ALLOW_WRITES,
-        "quantdata_enabled": QD_AVAILABLE,
+        "quantdata": "standalone quantdata-mcp server (registered separately)",
     }
 
+# ─── Entry point ─────────────────────────────────────────────────────────────
 
-@mcp.tool()
-def qd_status() -> dict:
-    """
-    Check whether the QuantData live API is reachable and authenticated.
-    Makes a lightweight test call (IV rank for SPY) and reports latency.
-    Use this before calling any qd_* tool to confirm the feed is live.
-    WARNING: All qd_* tools currently return SPY data regardless of ticker
-    passed (known limitation — PUT /api/tool filter ignored by QuantData).
-    """
-    import time
-    try:
-        t0 = time.monotonic()
-        _get("/api/qd/iv-rank/SPY")
-        latency_ms = round((time.monotonic() - t0) * 1000)
-        return {
-            "status": "ok",
-            "latency_ms": latency_ms,
-            "warning": "All qd_* tools return SPY data only — per-ticker filter not supported by QuantData API.",
-        }
-    except Exception as e:
-        return {
-            "status": "error",
-            "error": str(e),
-            "warning": "QuantData feed is down or unauthenticated. Run Settings → QuantData Auto-Login to refresh.",
-        }
 if __name__ == "__main__":
     if not API_TOKEN:
         import sys
@@ -1162,11 +956,9 @@ if __name__ == "__main__":
         sys.exit(1)
 
     tier2_status = "ENABLED" if ALLOW_WRITES else "DISABLED (set FORTRESS_MCP_ALLOW_WRITES=1 to enable)"
-    qd_status = "ENABLED (proxied via Fortress server)"
     import sys
     print(f"[fortress-mcp v{FORTRESS_MCP_VERSION}] Connecting to {API_URL}", file=sys.stderr)
-    print(f"[fortress-mcp] Tier 1 read-only tools: 45 (incl. pcs_exposure, pnl_history, version)", file=sys.stderr)
-    print(f"[fortress-mcp] Tier 1b QuantData live tools: {qd_status}", file=sys.stderr)
     print(f"[fortress-mcp] Tier 2 write tools: {tier2_status}", file=sys.stderr)
+    print(f"[fortress-mcp] QuantData: use standalone quantdata-mcp server", file=sys.stderr)
 
     mcp.run(transport="stdio")
