@@ -1,7 +1,7 @@
 # Fortress MCP Server
 
 MCP server connecting Claude to the **Fortress Trading Dashboard V4**.
-68 tools across portfolio analysis, IBKR management, options strategy, QuantData market data, and order staging.
+62 tools across portfolio analysis, IBKR management, options strategy, and order staging. QuantData market data is now provided by the standalone quantdata-mcp server (install separately).
 
 ---
 
@@ -49,18 +49,17 @@ pip install mcp httpx requests
 
 ---
 
-## Tool Tiers — 68 tools total
+## Tool Tiers — 62 tools total
 
 | Tier | Count | Description |
 |---|---|---|
 | **Tier 1** | 45 | Read-only: briefing, positions, P&L, alerts, market intelligence, analytics, options |
 | **Tier 2** | 16 | Writes (requires `FORTRESS_MCP_ALLOW_WRITES=1`): alerts, journal, settings, IBKR sync, scripts, orders, **stage_order**, **refresh_iv_data** |
-| **QD** | 6 | QuantData live: IV rank, dark pool, order flow, net drift, max pain, OI change |
 | **Charts** | 3 | OHLCV candles, GEX/DP levels, order flow overlays |
 
 Always start with `get_briefing()` — it returns the full portfolio situation summary.
 
-### New in v4.1.0
+### New in v4.2.0
 
 **`stage_order`** — Stage a trade in the Build Center approval queue. Full order workflow:
 ```
