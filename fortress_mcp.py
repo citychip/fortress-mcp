@@ -32,7 +32,34 @@ logger = logging.getLogger(__name__)
 
 # ─── Config ──────────────────────────────────────────────────────────────────
 API_URL   = os.environ.get("FORTRESS_API_URL", "http://localhost:8081").rstrip("/")
-API_TOKEN = os.environ.get("FORTRESS_API_TOKEN", "")
+
+
+def _resolve_api_token() -> str:
+    """Resolve the API bearer token.
+
+    Single source of truth is ``~/.fortress_api_token`` — the same file every
+    backend script reads (on Windows this is ``%USERPROFILE%\\.fortress_api_token``).
+    We PREFER that file over the FORTRESS_API_TOKEN env var so a stale token
+    injected by a per-session plugin ``.mcp.json`` can no longer 401 the
+    connector (the 2026-06-19 rotation drift: the .mcp.json is regenerated per
+    session from the plugin install source and can re-seed an old token). The
+    env var stays as a fallback for hosts without the file.
+
+    NEVER hardcode the token here — this module is tracked in git.
+    """
+    try:
+        from pathlib import Path
+        f = Path.home() / ".fortress_api_token"
+        if f.is_file():
+            tok = f.read_text().strip()
+            if tok:
+                return tok
+    except Exception:
+        pass
+    return os.environ.get("FORTRESS_API_TOKEN", "")
+
+
+API_TOKEN = _resolve_api_token()
 ALLOW_WRITES = os.environ.get("FORTRESS_MCP_ALLOW_WRITES", "0") == "1"
 
 mcp = FastMCP(
@@ -1347,9 +1374,10 @@ if __name__ == "__main__":
     if not API_TOKEN:
         import sys
         print(
-            "ERROR: FORTRESS_API_TOKEN environment variable is not set.\n"
-            "Set it to the 64-char token from the VPS systemd override.\n"
-            "Example: export FORTRESS_API_TOKEN=07f03fb6...",
+            "ERROR: no API token found.\n"
+            "Provide it via ~/.fortress_api_token (preferred — single source of "
+            "truth, on Windows %USERPROFILE%\\.fortress_api_token) or the "
+            "FORTRESS_API_TOKEN env var (fallback).",
             file=sys.stderr,
         )
         sys.exit(1)
