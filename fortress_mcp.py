@@ -1293,6 +1293,50 @@ def set_macro_events(events: list[dict]) -> dict:
 
 
 @mcp.tool()
+def get_ex_div(near_itm_pct: float = 0.02) -> dict:
+    """
+    Ex-dividend assignment-risk gate for SHORT CALLS (Strategy §4). Reads the
+    Claude-curated ex-div store and cross-references the live short-call legs:
+    a call that is ITM/near-ITM with an ex-div on/before its expiry is flagged
+    for early-assignment (dividend-capture) risk. Advisory only — never blocks.
+
+    Only ITM short calls on dividend-paying names carry real risk; deep-OTM calls
+    (e.g. MSFT 490/510) and non-dividend names (AMZN/GOOGL/NVDA/META) never flag.
+
+    Key outputs:
+      - assignment_risks[]: {ticker, strike, expiry, spot, ex_date, ex_days_until,
+        dividend, moneyness_pct, severity 'high'(ITM)|'watch'(near-ITM), note}
+      - has_assignment_risk: bool — the headline; if False, nothing to do
+      - events[]: upcoming ex-div dates in the store (ticker, ex_date, days_until)
+      - stale: True until set_ex_div_events has been called this cycle
+
+    Args:
+        near_itm_pct: how far below the strike still counts as near-ITM 'watch'
+                      (default 0.02 = within 2%).
+    """
+    return _get("/api/options/ex-div", params={"near_itm_pct": near_itm_pct})
+
+
+@mcp.tool()
+def set_ex_div_events(events: list[dict]) -> dict:
+    """
+    [WRITE — requires FORTRESS_MCP_ALLOW_WRITES=1]
+    Replace the ex-dividend store that feeds the assignment-risk gate. Curate the
+    upcoming ex-div dates from FMP's dividends-calendar for held dividend-paying
+    names (the short-call tickers), then push the full forward list here (it
+    replaces, not appends; past events auto-prune on read).
+
+    events: list of {ticker, ex_date, amount?, note?} where
+        ticker  — e.g. 'MSFT', 'AAPL'
+        ex_date — 'YYYY-MM-DD' (the ex-dividend date)
+        amount  — per-share dividend (optional; helps judge capture incentive)
+        note    — optional context
+    """
+    _writes_check()
+    return _post("/api/options/ex-div", body={"events": events})
+
+
+@mcp.tool()
 def get_vix_term() -> dict:
     """
     VIX term-structure regime input for premium selling (advisory, §15.1).
