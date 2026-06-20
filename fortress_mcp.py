@@ -1187,7 +1187,7 @@ def get_strategy_metrics(
 def check_liquidity(
     ticker: str,
     expiry: Optional[str] = None,
-    moneyness_range: float = 0.15,
+    moneyness_range: float = 0.20,
 ) -> dict:
     """
     Advisory bid-ask spread quality check for a ticker's options chain (yfinance).
@@ -1198,16 +1198,23 @@ def check_liquidity(
       > 10%: WIDE — hard block per strategy §4
 
     Key outputs:
-      - liquidity_grade: A (≥80% good), B (≥60%), C (≥40%), D (<40%)
-      - atm_spread_pct: average spread % at ATM strike
-      - atm_advisory: True if ATM spread ≥ 5% (triggers advisory in candidates tab)
-      - summary: {total, good, advisory, wide, good_pct}
-      - strikes[]: per-strike bid/ask/spread data within moneyness_range of spot
+      - liquidity_grade: A (≥80% good), B (≥60%), C (≥40%), D (<40%) — graded on
+        the OTM TRADEABLE zone (|Δ| ≤ 0.35), NOT the flat band, so tight ATM
+        strikes can't inflate it. grade_basis says which zone was used.
+      - short_leg: {put, call} liquidity at the ~0.20Δ strikes you'd actually
+        sell — each {strike, delta, spread_pct, status}. THIS is the number that
+        matters for entry; the old flat grade masked wide OTM wings.
+      - tradeable_spread_pct / tradeable_status: the WORST short-leg spread —
+        what you'll face on the leg you sell.
+      - atm_spread_pct / atm_advisory: ATM reference (kept for back-compat).
+      - summary: {total, good, advisory, wide, good_pct, tradeable_strikes}
+      - strikes[]: per-strike bid/ask/spread + delta within moneyness_range.
 
     Args:
         ticker:          Uppercase ticker symbol, e.g. 'SPY', 'AAPL'
         expiry:          Expiry YYYY-MM-DD. Defaults to nearest 21-60 DTE.
-        moneyness_range: Strike range from spot to scan (default 0.15 = ±15%)
+        moneyness_range: Strike range from spot to scan (default 0.20 = ±20%,
+                         wide enough to reach the ~0.20Δ short legs on both wings)
 
     PREREQUISITE: options_analytics.py must be deployed and registered in main.py.
     """
