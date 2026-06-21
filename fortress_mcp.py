@@ -25,7 +25,7 @@ import logging
 from typing import Optional, Any
 import httpx
 from mcp.server.fastmcp import FastMCP
-FORTRESS_MCP_VERSION = "4.9.0"
+FORTRESS_MCP_VERSION = "4.10.0"
 
 
 logger = logging.getLogger(__name__)
@@ -1348,6 +1348,50 @@ def get_vix_term() -> dict:
     A useful complement to the regime score and the catalyst gate.
     """
     return _get("/api/options/vix-term")
+
+
+@mcp.tool()
+def get_ibkr_fills(days_back: int = 7) -> dict:
+    """
+    Recent IBKR executions (CP Gateway /trades) with open/close/roll/hedge labels.
+    INSPECTION/ENRICHMENT ONLY — that feed is session-scoped and often empty for
+    manual/out-of-session trades. The authoritative fill source for pacing is the
+    position-diff (get_position_opens). Use this for live debugging.
+    """
+    return _get("/api/ibkr/fills", params={"days_back": days_back})
+
+
+@mcp.tool()
+def get_position_opens() -> dict:
+    """
+    Pacing-relevant opens this week from the POSITION-DIFF detector (Sprint 16) —
+    the authoritative source that catches MANUAL fills (it diffs the IBKR-synced
+    book, not just Fortress-staged orders). Rolls net to zero, SPY hedge excluded.
+    Returns {available, used, entries[]}. Needs ≥2 daily snapshots to diff.
+    """
+    return _get("/api/positions/opens")
+
+
+@mcp.tool()
+def capture_position_snapshot(reason: str = "manual") -> dict:
+    """
+    Capture a position snapshot now for the position-diff fill detector (Sprint
+    16). Idempotent per calendar day. get_briefing also triggers this daily, so
+    manual capture is only needed to backfill or force a fresh diff point.
+    Returns the opened/closed legs vs the prior snapshot.
+    """
+    _writes_check()
+    return _post("/api/positions/snapshot", params={"reason": reason})
+
+
+@mcp.tool()
+def get_entry_conditions() -> dict:
+    """
+    Open entry-condition snapshots (IVR/DTE/short-delta captured when a short leg
+    opened, Sprint 16.2). log_trade_outcome auto-reads these at close to populate
+    *_at_entry for the expectancy loop. Use to inspect what's captured.
+    """
+    return _get("/api/positions/entry-conditions")
 
 
 @mcp.tool()
