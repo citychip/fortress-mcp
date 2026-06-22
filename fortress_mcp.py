@@ -25,7 +25,7 @@ import logging
 from typing import Optional, Any
 import httpx
 from mcp.server.fastmcp import FastMCP
-FORTRESS_MCP_VERSION = "4.10.0"
+FORTRESS_MCP_VERSION = "4.11.0"
 
 
 logger = logging.getLogger(__name__)
@@ -1256,21 +1256,24 @@ def get_iv_rank(ticker: str) -> dict:
 
 
 @mcp.tool()
-def get_macro_events(defer_days: int = 2) -> dict:
+def get_macro_events(defer_days: int | None = None) -> dict:
     """
     Macro economic-event calendar for the catalyst gate (Strategy §4 binary-event
     timing). Returns upcoming FOMC/CPI/PPI/NFP/PCE events with days_until and a
     portfolio-level defer_advisory when a HIGH-impact event falls within
-    defer_days (default 2). Advisory only — never blocks (§15.1).
+    defer_days. Advisory only — never blocks (§15.1).
 
     Use in the pre-trade workflow: if defer_advisory is True, hold new
     premium-selling entries until the event clears. Keep the calendar current
     with set_macro_events() sourced from FRED / FMP economics (the backend has
     no macro-data credentials — Claude is the curator).
 
-    defer_days: high-impact proximity window for the defer advisory (0-14).
+    defer_days: high-impact proximity window for the defer advisory (0-14). When
+    omitted (None), the backend uses the live cfg("catalyst.defer_days") setting
+    tunable in System > Settings (Sprint 17.3); pass an int to override per-call.
     """
-    return _get("/api/options/macro-events", params={"defer_days": defer_days})
+    params = {} if defer_days is None else {"defer_days": defer_days}
+    return _get("/api/options/macro-events", params=params)
 
 
 @mcp.tool()
@@ -1290,6 +1293,53 @@ def set_macro_events(events: list[dict]) -> dict:
     """
     _writes_check()
     return _post("/api/options/macro-events", body={"events": events})
+
+
+@mcp.tool()
+def get_ticker_news(ticker: str) -> dict:
+    """
+    Per-ticker news-scan indicator for the catalyst gate (Strategy §4 news-spike
+    cooldown). Reads the Claude-curated last-material-headline store and returns
+    days_since the last material headline plus cooldown_active (True when the
+    headline is material and days_since < the catalyst.news_spike_cooldown_days
+    setting, tunable in System > Settings). Advisory only — never blocks. This is
+    an indicator (use it to size down / defer new entries on a name with a fresh
+    material catalyst), NOT a news reader.
+
+    Returns: ticker, last_headline_date, days_since, material, headline,
+             cooldown_active, cooldown_days, updated_at, stale.
+    """
+    return _get(f"/api/market/news/{ticker}")
+
+
+@mcp.tool()
+def get_all_ticker_news() -> dict:
+    """
+    All curated per-ticker news records with days_since + cooldown flags in one
+    call (used to badge Candidates/Triage). See get_ticker_news for field detail.
+    """
+    return _get("/api/market/news")
+
+
+@mcp.tool()
+def set_ticker_news(tickers: dict) -> dict:
+    """
+    [WRITE — requires FORTRESS_MCP_ALLOW_WRITES=1]
+    Replace the per-ticker news store that feeds the §4 news-spike cooldown
+    indicator. Curate the LAST MATERIAL headline per ticker from QuantData
+    (qd_get_news_articles) or FMP news, then push the full map here (it replaces,
+    not appends).
+
+    tickers: dict keyed by ticker symbol, each value {date, headline?, material?}:
+        date     — 'YYYY-MM-DD' of the last material headline
+        headline — optional short text of the headline
+        material — bool (default True); set False for routine/non-market-moving
+                   items so they don't trigger the cooldown
+    Example: {"MSFT": {"date": "2026-06-20", "headline": "DOJ probe report",
+              "material": true}, "AAPL": {"date": "2026-06-10", "material": false}}
+    """
+    _writes_check()
+    return _post("/api/market/news", body={"tickers": tickers})
 
 
 @mcp.tool()
