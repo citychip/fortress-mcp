@@ -480,8 +480,11 @@ def add_conditional_alert(
     Add a CONDITIONAL alert — auto-evaluated against live data by the
     scheduler (alert_eval job). Use this for price/delta/DTE/P&L triggers.
     ticker: uppercase ticker, e.g. 'MSFT'
-    alert_type: 'price_above' | 'price_below' | 'pnl_pct' | 'dte_lte'
-                | 'delta_gte' | 'conditional_entry'
+    alert_type: 'price_above' | 'price_below' | 'close_above' | 'close_below'
+                | 'pnl_pct' | 'dte_lte' | 'delta_gte' | 'conditional_entry'
+                close_above/close_below fire ONLY on the official daily CLOSE
+                (EOD pass) — immune to intraday wicks. Use them for "confirm on
+                the close" rules instead of price_above/price_below.
     threshold: trigger value (price, %, DTE, or delta)
     message: alert text, 1-300 chars
     urgency: 'critical' | 'watch' | 'profit' | 'entry' (default 'watch')
@@ -538,11 +541,25 @@ def delete_conditional_alert(alert_id: str) -> dict:
 def evaluate_conditional_alerts() -> dict:
     """
     [WRITE — requires FORTRESS_MCP_ALLOW_WRITES=1]
-    Force an immediate evaluation pass of all active conditional alerts
-    (normally run by the scheduler). Returns newly triggered alerts.
+    Force an immediate INTRADAY evaluation pass (spot/pnl/dte/delta). Skips
+    close_above/close_below — those are EOD-only (use evaluate_close_alerts).
+    Normally run by the scheduler. Returns newly triggered alerts.
     """
     _writes_check()
     return _post("/api/conditional-alerts/evaluate", body={})
+
+@mcp.tool()
+def evaluate_close_alerts() -> dict:
+    """
+    [WRITE — requires FORTRESS_MCP_ALLOW_WRITES=1]
+    Force the EOD close-confirmation pass (Sprint 20.3): evaluate
+    close_above/close_below alerts against the official DAILY CLOSE, not
+    intraday spot. Normally run once daily by the scheduler after the cash
+    close. Returns newly triggered alerts. Use to confirm a close rule on
+    demand or verify the pass after the close.
+    """
+    _writes_check()
+    return _post("/api/conditional-alerts/evaluate-close", body={})
 
 @mcp.tool()
 def delete_alert(alert_id: str) -> dict:
