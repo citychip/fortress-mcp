@@ -991,8 +991,11 @@ def get_chart_data(ticker: str, period: str = "6mo", interval: str = "1d") -> di
     Bollinger Bands(20,2), and key GEX/strike overlay levels.
     Args:
         ticker:   Ticker symbol, e.g. "MSFT"
-        period:   "1mo", "3mo", "6mo", "1y", "2y" (default "6mo")
-        interval: "1d", "1wk" (default "1d")
+        period:   "1mo", "3mo", "6mo", "1y", "2y", "5y", "max" (default "6mo").
+                  Use a longer period for coarse intervals (e.g. 5y/max for 1mo).
+        interval: "4h", "1h", "1d", "1wk", "1mo" (default "1d"). Sprint 22.5 —
+                  Monthly/4h added for the multi-timeframe view; 4h is resampled
+                  from 1h and intraday lookback is clamped to yfinance's cap.
     """
     params = f"?period={period}&interval={interval}"
     chart  = _get(f"/api/chart/{ticker}{params}")
@@ -1415,6 +1418,20 @@ def get_vix_term() -> dict:
     A useful complement to the regime score and the catalyst gate.
     """
     return _get("/api/options/vix-term")
+
+
+@mcp.tool()
+def get_technical_gate(tickers: str = "") -> dict:
+    """
+    Sprint 22.1 — weekly-200-SMA "Thesis Stop" technical gate per name.
+    For SPY + each ticker (comma-separated; default = SPY + open-position tickers)
+    returns spot vs the weekly 200-SMA and a hold/watch/act/unknown state:
+      act   = below the weekly 200-SMA (structural downtrend — the losing
+              premium-sell setup that the Sprint 21.4 entry gate flags),
+      watch = within 3% above, hold = comfortably above, unknown = thin history.
+    Headless-safe (yfinance), TTL-cached. Feeds the daily-briefing Technical Gate.
+    """
+    return _get("/api/technical/gate", params={"tickers": tickers})
 
 
 @mcp.tool()
