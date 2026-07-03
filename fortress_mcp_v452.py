@@ -948,7 +948,7 @@ def run_script(script_key: str) -> dict:
     return _post(f"/api/run/{script_key}")
 
 @mcp.tool()
-def refresh_iv_data() -> dict:
+def refresh_iv_data(wait: bool = False) -> dict:
     """
     [WRITE — requires FORTRESS_MCP_ALLOW_WRITES=1]
     Trigger a fresh IV crush scan (workflow_05_iv_crush_report.py).
@@ -958,11 +958,31 @@ def refresh_iv_data() -> dict:
     - Morning scan data is stale
     - You need current IV ranks before selecting strikes
 
-    Takes ~15 seconds. Returns ranked candidates with IVR, current IV,
-    HV spread, and signals.
+    Sprint 25.5 — ASYNC by default: the scan takes ~15-20s and was timing out the
+    tool call (it completed server-side, but the tool reported a timeout). Now it
+    kicks the scan off in the background and returns immediately; poll
+    get_candidates / get_iv_rank after ~25s for the refreshed IVR. Pass wait=True
+    to block and return the ranked candidates inline (may still time out).
     """
     _writes_check()
-    return _post("/api/run/iv_crush")
+    if wait:
+        return _post("/api/run/iv_crush")
+    import threading
+
+    def _bg():
+        try:
+            _post("/api/run/iv_crush")
+        except Exception:
+            pass  # fire-and-forget; the scan runs server-side regardless
+
+    threading.Thread(target=_bg, daemon=True).start()
+    return {
+        "status": "started",
+        "async": True,
+        "message": "IV-crush scan kicked off in the background (~15-20s). "
+                   "Poll get_candidates / get_iv_rank in ~25s for the refreshed IVR. "
+                   "Use refresh_iv_data(wait=True) to block for the result.",
+    }
 
 @mcp.tool()
 def get_time_of_day() -> dict:
@@ -1036,6 +1056,19 @@ def get_roll_all() -> dict:
     Returns roll recommendation, urgency, and suggested new strikes/expiry.
     """
     return _get("/api/manage/roll_all")
+
+
+@mcp.tool()
+def get_leap_roll_all() -> dict:
+    """
+    Sprint 25.11 — LEAP-roll signals (the long-leg counterpart to get_roll_all,
+    which only scans short legs and skips LEAPs). Scans the per-leg book for
+    long-dated long CALL legs (the LEAP cores) and flags any whose long delta has
+    decayed to ≤ leap_roll_delta (0.70) or DTE ≤ leap_roll_dte (120) — the §5 /
+    v3.10 §4b trigger to roll the LEAP into a fresh 12-18mo contract. Returns
+    {leap_roll_delta, leap_roll_dte, count, positions[]} with per-leg delta/DTE.
+    """
+    return _get("/api/manage/leap_roll_all")
 
 # ─── Misc read tools ──────────────────────────────────────────────────────────
 
