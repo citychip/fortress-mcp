@@ -991,8 +991,11 @@ def get_chart_data(ticker: str, period: str = "6mo", interval: str = "1d") -> di
     Bollinger Bands(20,2), and key GEX/strike overlay levels.
     Args:
         ticker:   Ticker symbol, e.g. "MSFT"
-        period:   "1mo", "3mo", "6mo", "1y", "2y" (default "6mo")
-        interval: "1d", "1wk" (default "1d")
+        period:   "1mo", "3mo", "6mo", "1y", "2y", "5y", "max" (default "6mo").
+                  Use a longer period for coarse intervals (e.g. 5y/max for 1mo).
+        interval: "4h", "1h", "1d", "1wk", "1mo" (default "1d"). Sprint 22.5 —
+                  Monthly/4h added for the multi-timeframe view; 4h is resampled
+                  from 1h and intraday lookback is clamped to yfinance's cap.
     """
     params = f"?period={period}&interval={interval}"
     chart  = _get(f"/api/chart/{ticker}{params}")
