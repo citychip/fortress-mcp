@@ -1079,8 +1079,11 @@ def get_covered_call_candidates() -> dict:
     — capital earning nothing, e.g. AMZN / GOOGL), and for each returns the
     adaptive ~0.30Δ / 30-45 DTE covered call the 21.1b engine would write
     (short_strike, target_delta, estimated_credit, annualized_yield, pop,
-    delta_rationale) sourced from the tested strategy_metrics PMCC leg. Returns
-    {target_dte, count, candidates[]}. ADVISORY ONLY — never stages an order.
+    delta_rationale) sourced from the tested strategy_metrics PMCC leg. Sprint
+    26.2 adds the FULL COLLAR: each recommended_call also carries `protective_put`
+    (DTE-matched strike/debit at ~collar_put_delta_target) and `collar_net` (call
+    credit − put debit; >0 = net credit to establish). Returns {target_dte, count,
+    candidates[]}. ADVISORY ONLY — never stages an order.
     """
     return _get("/api/manage/covered_call_candidates")
 
@@ -1092,6 +1095,28 @@ def get_cluster_history() -> dict:
     Recovery page plots against the ≤60% de-concentration target.
     """
     return _get("/api/manage/cluster_history")
+
+@mcp.tool()
+def get_profit_targets() -> dict:
+    """
+    Sprint 26.3 — manage-at-50% + 21-DTE scan. Flags OPEN SHORT option legs that
+    have captured ≥ profit_target_pct (50%) of premium OR decayed to ≤
+    dte_roll_threshold (21) DTE — the two systematic close/roll triggers (raise
+    turnover, cut late-cycle gamma). Returns {profit_target_pct, dte_roll_threshold,
+    count, positions[]} with per-leg capture_pct/dte/reasons. ADVISORY ONLY.
+    """
+    return _get("/api/manage/profit_targets")
+
+@mcp.tool()
+def get_risk_limits() -> dict:
+    """
+    Sprint 26.1 (Health Manager) — margin-debt & liquidity risk monitor. Returns
+    the USD-cash margin-debt floor and Excess-Liquidity floor with breach flags,
+    plus a stale-data check (sync age). {usd_cash, cash_floor, cash_breach,
+    excess_liq, excess_floor, excess_liq_breach, data_age_min, stale_data,
+    any_breach, status}. Fail-safe: a missing value never reads as "within limits".
+    """
+    return _get("/api/manage/risk_limits")
 
 # ─── Misc read tools ──────────────────────────────────────────────────────────
 
