@@ -1070,6 +1070,29 @@ def get_leap_roll_all() -> dict:
     """
     return _get("/api/manage/leap_roll_all")
 
+@mcp.tool()
+def get_covered_call_candidates() -> dict:
+    """
+    Sprint 25.9 / 23.3 — covered-call candidates for UNDER-WRITTEN LEAP cores.
+    Scans the per-leg book for long-dated long CALL cores whose contracts aren't
+    fully covered by an open short call on the same underlying (the MONETIZE case
+    — capital earning nothing, e.g. AMZN / GOOGL), and for each returns the
+    adaptive ~0.30Δ / 30-45 DTE covered call the 21.1b engine would write
+    (short_strike, target_delta, estimated_credit, annualized_yield, pop,
+    delta_rationale) sourced from the tested strategy_metrics PMCC leg. Returns
+    {target_dte, count, candidates[]}. ADVISORY ONLY — never stages an order.
+    """
+    return _get("/api/manage/covered_call_candidates")
+
+@mcp.tool()
+def get_cluster_history() -> dict:
+    """
+    Sprint 25.6 — the stored daily Mag-7 cluster-% glide series (read-only).
+    Returns {target, points:[{date, pct}]} — the concentration trajectory the
+    Recovery page plots against the ≤60% de-concentration target.
+    """
+    return _get("/api/manage/cluster_history")
+
 # ─── Misc read tools ──────────────────────────────────────────────────────────
 
 @mcp.tool()
