@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/citychip-fortress-mcp-badge.png)](https://mseep.ai/app/citychip-fortress-mcp)
+
 # Fortress MCP Server
 
 MCP server connecting Claude to the **Fortress Trading Dashboard V4**.
