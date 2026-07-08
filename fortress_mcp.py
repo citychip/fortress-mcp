@@ -65,7 +65,7 @@ ALLOW_WRITES = os.environ.get("FORTRESS_MCP_ALLOW_WRITES", "0") == "1"
 mcp = FastMCP(
     "fortress-dashboard",
     instructions=(
-        "Fortress Dashboard MCP v4.5.1 — Portfolio Strategy v3.9.0. "
+        "Fortress Dashboard MCP v4.12.0 — Portfolio Strategy v3.11 (consolidated spec: 01_Portfolio_Strategy_v3_11.md). "
         "All monetary values are USD. Delta target: 0.35 net long. "
         "Use get_briefing() first for any portfolio question. "
         "Never execute trades — this server is read-only unless FORTRESS_MCP_ALLOW_WRITES=1. "
