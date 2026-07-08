@@ -25,7 +25,7 @@ import logging
 from typing import Optional, Any
 import httpx
 from mcp.server.fastmcp import FastMCP
-FORTRESS_MCP_VERSION = "4.11.0"
+FORTRESS_MCP_VERSION = "4.12.0"  # 4.12.0 (2026-07-08): empty-body-tolerant HTTP helpers (delete_conditional_alert fix)
 
 
 logger = logging.getLogger(__name__)
@@ -92,35 +92,50 @@ def _client() -> httpx.Client:
         verify=False,  # self-signed cert on VPS
     )
 
+def _json_or_ok(r) -> Any:
+    """
+    Parse a successful response body, tolerating EMPTY bodies (204 / bare 200).
+    2026-07-08 fix: DELETE /conditional-alerts/{id} succeeds but returns no
+    body — r.json() raised 'Expecting value: line 1 column 1' and the tool
+    reported an error for an operation that had actually landed.
+    """
+    if r.status_code == 204 or not (r.content or b"").strip():
+        return {"status": "ok", "http_status": r.status_code}
+    try:
+        return r.json()
+    except ValueError:
+        return {"status": "ok", "http_status": r.status_code,
+                "raw": r.text[:500]}
+
 def _get(path: str, params: dict | None = None) -> Any:
     with _client() as c:
         r = c.get(path, params=params)
         r.raise_for_status()
-        return r.json()
+        return _json_or_ok(r)
 
 def _post(path: str, body: dict | None = None, params: dict | None = None) -> Any:
     with _client() as c:
         r = c.post(path, json=body or {}, params=params)
         r.raise_for_status()
-        return r.json()
+        return _json_or_ok(r)
 
 def _put(path: str, body: dict) -> Any:
     with _client() as c:
         r = c.put(path, json=body)
         r.raise_for_status()
-        return r.json()
+        return _json_or_ok(r)
 
 def _patch(path: str, body: dict) -> Any:
     with _client() as c:
         r = c.patch(path, json=body)
         r.raise_for_status()
-        return r.json()
+        return _json_or_ok(r)
 
 def _delete(path: str) -> Any:
     with _client() as c:
         r = c.delete(path)
         r.raise_for_status()
-        return r.json()
+        return _json_or_ok(r)
 
 def _writes_check() -> None:
     if not ALLOW_WRITES:
@@ -481,10 +496,14 @@ def add_conditional_alert(
     scheduler (alert_eval job). Use this for price/delta/DTE/P&L triggers.
     ticker: uppercase ticker, e.g. 'MSFT'
     alert_type: 'price_above' | 'price_below' | 'close_above' | 'close_below'
+                | 'weekly_close_above' | 'weekly_close_below'
                 | 'pnl_pct' | 'dte_lte' | 'delta_gte' | 'conditional_entry'
                 close_above/close_below fire ONLY on the official daily CLOSE
                 (EOD pass) — immune to intraday wicks. Use them for "confirm on
                 the close" rules instead of price_above/price_below.
+                weekly_close_above/weekly_close_below fire ONLY on the FRIDAY
+                close (the weekly close) — use these for v3.11 weekly-close
+                de-risk rules (e.g. MSFT Fri close <383 → cut vertical 50%).
     threshold: trigger value (price, %, DTE, or delta)
     message: alert text, 1-300 chars
     urgency: 'critical' | 'watch' | 'profit' | 'entry' (default 'watch')
@@ -552,11 +571,11 @@ def evaluate_conditional_alerts() -> dict:
 def evaluate_close_alerts() -> dict:
     """
     [WRITE — requires FORTRESS_MCP_ALLOW_WRITES=1]
-    Force the EOD close-confirmation pass (Sprint 20.3): evaluate
-    close_above/close_below alerts against the official DAILY CLOSE, not
-    intraday spot. Normally run once daily by the scheduler after the cash
-    close. Returns newly triggered alerts. Use to confirm a close rule on
-    demand or verify the pass after the close.
+    Force the EOD close-confirmation pass (Sprint 20.3 + v3.11): evaluate
+    close_above/close_below (daily) and weekly_close_above/weekly_close_below
+    (Friday bar only) against the official CLOSE, not intraday spot. Normally
+    run once daily by the scheduler after the cash close. Returns newly
+    triggered alerts. Use to confirm a close rule on demand.
     """
     _writes_check()
     return _post("/api/conditional-alerts/evaluate-close", body={})
