@@ -176,6 +176,29 @@ def get_candidates() -> dict:
     return _get("/api/candidates")
 
 @mcp.tool()
+def get_household_overview() -> dict:
+    """
+    v4.0 household (two-leaf) OVERVIEW — read-only. Combined net liq (EUR),
+    leaf split (Leaf B / IBKR vs Leaf A / eToro %), the v4.0 caps, and the
+    eToro-snapshot freshness (`etoro_as_of`). Leaf B is computed live from the
+    synced book; Leaf A is a stored snapshot (eToro has no API). `source: "live"`
+    = fresh IBKR read; `source: "seed"` = fallback (briefing/positions down).
+    Engine (v3.11) untouched — pure aggregation.
+    """
+    return _get("/api/household/overview")
+
+@mcp.tool()
+def get_household_concentration() -> dict:
+    """
+    v4.0 household (two-leaf) CONCENTRATION — read-only. Netted single-name %,
+    sector %, and the AI/tech/chips group % + semis %, each against its v4.0 cap
+    (single-name 15 / sector 25 / group 35). Netted across Leaf B (IBKR, live)
+    and Leaf A (eToro snapshot). Use to check the household caps that sit ABOVE
+    the v3.11 β-DD gate. `source` = live | seed as in get_household_overview.
+    """
+    return _get("/api/household/concentration")
+
+@mcp.tool()
 def get_calendar(window_days: int = 14) -> dict:
     """
     Earnings calendar for the next window_days (default 14). Returns each
