@@ -199,6 +199,30 @@ def get_household_concentration() -> dict:
     return _get("/api/household/concentration")
 
 @mcp.tool()
+def get_uncap_stages() -> dict:
+    """
+    v4.0 Phase 3 STAGED-UNCAP tracker — read-only. Per Leaf-B LEAP name: the
+    CURRENT stage (0–3, derived live from short-call:long-LEAP coverage —
+    100%→S0, 50%→S1, 25%→S2, uncapped→S3) plus the four v4.0 §3.1 advance gates
+    (name < 15% household · cash floors ok · regime not bearish · above weekly
+    200-SMA) and a verdict (eligible to uncap +1 / hold / de-stage). Use to see
+    which conviction names have earned an uncap and which need coverage added.
+    """
+    return _get("/api/household/uncap_stages")
+
+@mcp.tool()
+def get_tail_hedge() -> dict:
+    """
+    v4.0 Phase 3 TAIL-HEDGE monitor — read-only. The household-view replacement
+    for the B-2 SPY-spread widget (v4.0 §5 retires B-2 for Leaf B). Returns the
+    quarterly budget (~0.75% of net liq), the far-OTM SPY crash puts held
+    (strike / DTE / %OTM / qty, filtered to ≥15% OTM), estimated cost +
+    budget utilization, and the nearest roll DTE (roll_flag when < 90d). Target
+    is 15–25% OTM, 3–6 months, rolled quarterly.
+    """
+    return _get("/api/household/tail_hedge")
+
+@mcp.tool()
 def get_calendar(window_days: int = 14) -> dict:
     """
     Earnings calendar for the next window_days (default 14). Returns each
